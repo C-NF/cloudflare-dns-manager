@@ -211,3 +211,214 @@
     font-size: 0.75rem;
     color: var(--text-muted);
 }
+
+/* ============================================
+   Dark mode fixes for mobile cards
+   ============================================ */
+:root[data-theme="dark"] .record-card {
+    background: var(--card-bg);
+}
+
+:root[data-theme="dark"] .record-actions-inline {
+    background: var(--card-bg);
+}
+
+:root[data-theme="dark"] .record-content-cell {
+    background: var(--input-bg);
+    border-color: var(--border);
+}
+
+:root[data-theme="dark"] .ttl-box {
+    background: var(--input-bg);
+    border-color: var(--border);
+}
+
+:root[data-theme="dark"] .dns-type-label {
+    background: var(--badge-orange-bg);
+}
+
+/* ============================================
+   Touch target sizes for touch devices
+   ============================================ */
+@media (pointer: coarse) {
+    /* All buttons get minimum 44x44 touch target */
+    .btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 0.5rem 1rem;
+    }
+
+    /* Icon-only buttons: use padding to enlarge touch area without changing icon size */
+    .btn-outline[style*="padding: 0.4rem"],
+    .btn-outline[style*="padding: 0.35rem"],
+    .record-actions-inline .btn,
+    .header-actions .btn {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Header icon buttons */
+    header .btn,
+    header button {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Table action buttons */
+    .data-table .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Dropdown items */
+    [role="option"] {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Modal close buttons */
+    [aria-label="Close"] {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Links and clickable elements */
+    a,
+    [role="button"] {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* Checkboxes */
+    .record-checkbox {
+        width: 22px !important;
+        height: 22px !important;
+    }
+
+    .dns-selection {
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Toggle switches - enlarge touch area */
+    .toggle-switch {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Tab buttons */
+    [style*="borderBottom"][style*="padding: 0.75rem 0"] {
+        min-height: 44px;
+    }
+
+    /* Zone selector items */
+    .glass-card [role="option"] {
+        min-height: 44px;
+        padding-top: 0.625rem;
+        padding-bottom: 0.625rem;
+    }
+
+    /* Copy buttons in verification modal */
+    .btn-outline[style*="padding: 6px"] {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* ============================================
+   Modal overflow handling on mobile
+   ============================================ */
+
+/* Prevent body scroll when modal is open */
+body.modal-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+}
+
+/* Modal overlay - ensure it scrolls on mobile */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    z-index: 1000;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 2rem 0;
+}
+
+/* Modal content box */
+.modal-content {
+    position: relative;
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+    .modal-overlay {
+        padding: 1rem 0;
+        align-items: flex-start;
+    }
+
+    .modal-content {
+        max-height: 90vh;
+        overflow-y: auto;
+        margin: auto 0;
+    }
+
+    /* Ensure all modal dialog cards scroll on small screens */
+    .modal-overlay .glass-card {
+        max-height: 90vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ============================================
+   Desktop table horizontal scroll wrapper
+   ============================================ */
+@media (max-width: 1024px) {
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -0.25rem;
+        padding: 0 0.25rem;
+    }
+
+    .data-table {
+        min-width: 600px;
+    }
+}
+
+@media (max-width: 640px) {
+    /* On mobile the card view is shown so table min-width is not needed */
+    .data-table {
+        min-width: unset;
+    }
+}

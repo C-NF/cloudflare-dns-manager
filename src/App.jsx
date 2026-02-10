@@ -40,6 +40,7 @@ const App = () => {
     const searchRef = useRef(null);
     const refreshInProgress = useRef(false);
     const refreshAbortController = useRef(null);
+    const zoneFetchCache = useRef(new Map());
 
     // Modal visibility toggles
     const [showAddAccount, setShowAddAccount] = useState(false);
@@ -159,58 +160,88 @@ const App = () => {
         const allZones = [];
         const promises = [];
 
+        // Clear the deduplication cache at the start of each fetch cycle
+        const batchCache = zoneFetchCache.current;
+        batchCache.clear();
+
         if (globalLocal && authData.mode === 'server') {
             // Local mode: only use tokens from localStorage
             const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
             const keys = Object.keys(localTokens);
             for (const key of keys) {
                 const token = localTokens[key];
-                promises.push(
-                    fetch('/api/zones', { headers: { 'X-Cloudflare-Token': token } }).then(async res => {
-                        if (res.ok) {
-                            const data = await res.json();
-                            return (data.result || []).map(z => ({ ...z, _localKey: key, _owner: key }));
-                        }
-                        console.error(`Failed to fetch zones for local token ${key}: HTTP ${res.status}`);
-                        return [];
-                    }).catch((err) => { console.error(`Failed to fetch zones for local token ${key}:`, err); return []; })
-                );
+                // Deduplicate by token — skip if already fetching for this token
+                const cacheKey = `local:${token}`;
+                if (batchCache.has(cacheKey)) {
+                    promises.push(batchCache.get(cacheKey).then(zones =>
+                        zones.map(z => ({ ...z, _localKey: key, _owner: key }))
+                    ));
+                    continue;
+                }
+                const fetchPromise = fetch('/api/zones', { headers: { 'X-Cloudflare-Token': token } }).then(async res => {
+                    if (res.ok) {
+                        const data = await res.json();
+                        return data.result || [];
+                    }
+                    console.error(`Failed to fetch zones for local token ${key}: HTTP ${res.status}`);
+                    return [];
+                }).catch((err) => { console.error(`Failed to fetch zones for local token ${key}:`, err); return []; });
+                batchCache.set(cacheKey, fetchPromise);
+                promises.push(fetchPromise.then(zones => zones.map(z => ({ ...z, _localKey: key, _owner: key }))));
             }
         } else {
             // Server mode: use JWT + managed accounts
+            // Batch all account fetches per session into a single parallel operation
             const sessions = authData.sessions || [{ token: authData.token, username: authData.username, role: authData.role, accounts: authData.accounts || [] }];
             for (let si = 0; si < sessions.length; si++) {
                 const session = sessions[si];
                 const accounts = session.accounts || [];
+                const sessionPromises = [];
                 if (accounts.length === 0) {
-                    promises.push(
-                        fetch('/api/zones', {
+                    const cacheKey = `session:${session.token}:0`;
+                    if (!batchCache.has(cacheKey)) {
+                        const fetchPromise = fetch('/api/zones', {
                             headers: { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': '0' }
                         }).then(async res => {
                             if (res.ok) {
                                 const data = await res.json();
-                                return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username }));
+                                return data.result || [];
                             }
                             console.error(`Failed to fetch zones for session ${session.username} (account 0): HTTP ${res.status}`);
                             return [];
-                        }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account 0):`, err); return []; })
+                        }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account 0):`, err); return []; });
+                        batchCache.set(cacheKey, fetchPromise);
+                    }
+                    sessionPromises.push(
+                        batchCache.get(cacheKey).then(zones =>
+                            zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username }))
+                        )
                     );
-                    continue;
+                } else {
+                    for (const acc of accounts) {
+                        const cacheKey = `session:${session.token}:${acc.id}`;
+                        if (!batchCache.has(cacheKey)) {
+                            const fetchPromise = fetch('/api/zones', {
+                                headers: { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': String(acc.id) }
+                            }).then(async res => {
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    return data.result || [];
+                                }
+                                console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}): HTTP ${res.status}`);
+                                return [];
+                            }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}):`, err); return []; });
+                            batchCache.set(cacheKey, fetchPromise);
+                        }
+                        sessionPromises.push(
+                            batchCache.get(cacheKey).then(zones =>
+                                zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username }))
+                            )
+                        );
+                    }
                 }
-                for (const acc of accounts) {
-                    promises.push(
-                        fetch('/api/zones', {
-                            headers: { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': String(acc.id) }
-                        }).then(async res => {
-                            if (res.ok) {
-                                const data = await res.json();
-                                return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username }));
-                            }
-                            console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}): HTTP ${res.status}`);
-                            return [];
-                        }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}):`, err); return []; })
-                    );
-                }
+                // Batch all account fetches for this session into a single Promise.all
+                promises.push(Promise.all(sessionPromises).then(results => results.flat()));
             }
         }
 

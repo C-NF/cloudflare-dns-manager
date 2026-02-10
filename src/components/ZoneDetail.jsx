@@ -18,6 +18,10 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
     const [snapshots, setSnapshots] = useState([]);
     const [snapshotsLoading, setSnapshotsLoading] = useState(false);
     const [rollbackLoading, setRollbackLoading] = useState(null); // snapshot key being rolled back
+    const [snapshotPage, setSnapshotPage] = useState(1);
+    const [snapshotTotal, setSnapshotTotal] = useState(0);
+    const [snapshotTotalPages, setSnapshotTotalPages] = useState(1);
+    const snapshotPerPage = 10;
 
     const openConfirm = (title, message, onConfirm) => {
         setConfirmModal({ show: true, title, message, onConfirm });
@@ -96,6 +100,19 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
 
     const getHeaders = (withType = false) => getAuthHeaders(auth, withType);
 
+    // Lock body scroll when any modal is open
+    useEffect(() => {
+        const anyModalOpen = showDNSModal || showSaaSModal || showVerifyModal || confirmModal.show;
+        if (anyModalOpen) {
+            document.body.classList.add('modal-open');
+        } else {
+            document.body.classList.remove('modal-open');
+        }
+        return () => {
+            document.body.classList.remove('modal-open');
+        };
+    }, [showDNSModal, showSaaSModal, showVerifyModal, confirmModal.show]);
+
     const fetchDNS = async () => {
         setLoading(true);
         try {
@@ -106,15 +123,18 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
         setLoading(false);
     };
 
-    const fetchSnapshots = async () => {
+    const fetchSnapshots = async (page = 1) => {
         setSnapshotsLoading(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_history`, {
+            const res = await fetch(`/api/zones/${zone.id}/dns_history?page=${page}&per_page=${snapshotPerPage}`, {
                 headers: getAuthHeaders(auth)
             });
             if (res.ok) {
                 const data = await res.json();
                 setSnapshots(data.snapshots || []);
+                setSnapshotPage(data.page || 1);
+                setSnapshotTotal(data.total || 0);
+                setSnapshotTotalPages(data.total_pages || 1);
             }
         } catch (err) { console.error('Failed to fetch snapshots:', err); }
         setSnapshotsLoading(false);
@@ -137,7 +157,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                     'success'
                 );
                 fetchDNS(); // refresh the DNS records
-                fetchSnapshots(); // refresh snapshots
+                fetchSnapshots(snapshotPage); // refresh snapshots
             } else {
                 showToast(data.error || 'Rollback failed', 'error');
             }
@@ -695,7 +715,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                                     <button
                                         className="btn btn-outline"
                                         style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        onClick={() => { setShowHistory(true); fetchSnapshots(); }}
+                                        onClick={() => { setShowHistory(true); setSnapshotPage(1); fetchSnapshots(1); }}
                                     >
                                         <RefreshCw size={16} />
                                         <span className="btn-text">{t('dnsHistory')}</span>
@@ -793,6 +813,29 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                                         ))}
                                     </tbody>
                                 </table>
+                                {snapshotTotalPages > 1 && (
+                                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', padding: '0.75rem 0', fontSize: '0.8rem' }}>
+                                        <button
+                                            className="btn btn-outline"
+                                            style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                            disabled={snapshotPage <= 1 || snapshotsLoading}
+                                            onClick={() => { const p = snapshotPage - 1; setSnapshotPage(p); fetchSnapshots(p); }}
+                                        >
+                                            {t('prev') || 'Prev'}
+                                        </button>
+                                        <span style={{ color: 'var(--text-muted)' }}>
+                                            {snapshotPage} / {snapshotTotalPages}
+                                        </span>
+                                        <button
+                                            className="btn btn-outline"
+                                            style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                            disabled={snapshotPage >= snapshotTotalPages || snapshotsLoading}
+                                            onClick={() => { const p = snapshotPage + 1; setSnapshotPage(p); fetchSnapshots(p); }}
+                                        >
+                                            {t('next') || 'Next'}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1068,10 +1111,10 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             {/* DNS Modal */}
             {showDNSModal && (
                 <div
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
+                    className="modal-overlay"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowDNSModal(false); }}
                 >
-                    <div className="glass-card fade-in" role="dialog" aria-label={editingRecord ? t('editRecord') : t('addModalTitle')} style={{ padding: '2rem', maxWidth: '450px', width: '90%', position: 'relative' }}>
+                    <div className="glass-card fade-in modal-content" role="dialog" aria-label={editingRecord ? t('editRecord') : t('addModalTitle')} style={{ padding: '2rem', maxWidth: '450px', width: '90%', position: 'relative' }}>
                         <h2 style={{ marginBottom: '1.5rem' }}>{editingRecord ? t('editRecord') : t('addModalTitle')}</h2>
                         <form onSubmit={handleDNSSubmit}>
                             <div className="input-row">
@@ -1345,10 +1388,10 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             {/* SaaS Modal */}
             {showSaaSModal && (
                 <div
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
+                    className="modal-overlay"
                     onClick={(e) => { if (e.target === e.currentTarget) { setShowSaaSModal(false); setEditingSaaS(null); setNewSaaS(initialSaaS); } }}
                 >
-                    <div className="glass-card fade-in" role="dialog" aria-label={editingSaaS ? t('editSaaS') : t('addSaaS')} style={{ padding: '2rem', maxWidth: '450px', width: '90%', position: 'relative' }}>
+                    <div className="glass-card fade-in modal-content" role="dialog" aria-label={editingSaaS ? t('editSaaS') : t('addSaaS')} style={{ padding: '2rem', maxWidth: '450px', width: '90%', position: 'relative' }}>
                         <h2 style={{ marginBottom: '1.5rem' }}>{editingSaaS ? t('editSaaS') : t('addSaaS')}</h2>
                         <form onSubmit={handleSaaSSubmit}>
                             <div className="input-row">
@@ -1437,10 +1480,11 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             {/* Confirm Modal */}
             {confirmModal.show && (
                 <div
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 }}
+                    className="modal-overlay"
+                    style={{ zIndex: 2000 }}
                     onClick={(e) => { if (e.target === e.currentTarget) setConfirmModal({ ...confirmModal, show: false }); }}
                 >
-                    <div className="glass-card fade-in" role="dialog" aria-label={confirmModal.title} style={{ padding: '2rem', maxWidth: '400px', width: '90%', textAlign: 'center' }}>
+                    <div className="glass-card fade-in modal-content" role="dialog" aria-label={confirmModal.title} style={{ padding: '2rem', maxWidth: '400px', width: '90%', textAlign: 'center' }}>
                         <div style={{ width: '48px', height: '48px', background: '#fff5f5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
                             <AlertCircle size={24} color="var(--error)" />
                         </div>
@@ -1459,10 +1503,10 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             {/* Verification Modal */}
             {showVerifyModal && verifyingSaaS && (
                 <div
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
+                    className="modal-overlay"
                     onClick={(e) => { if (e.target === e.currentTarget) setShowVerifyModal(false); }}
                 >
-                    <div className="glass-card fade-in" role="dialog" aria-label={t('verificationRecords')} style={{ padding: '2rem', maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <div className="glass-card fade-in modal-content" role="dialog" aria-label={t('verificationRecords')} style={{ padding: '2rem', maxWidth: '600px', width: '90%' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                             <h2 style={{ margin: 0 }}>{t('verificationRecords')}</h2>
                             <button className="btn btn-outline" style={{ padding: '4px', border: 'none' }} onClick={() => setShowVerifyModal(false)} aria-label="Close">

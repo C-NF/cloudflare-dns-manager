@@ -190,9 +190,9 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
     if (!show) return null;
 
     return (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'var(--modal-overlay)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200, padding: '1rem' }}
+        <div className="modal-overlay" style={{ zIndex: 200 }}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="glass-card fade-in" role="dialog" aria-label={t('usersManagement')} style={{ width: '100%', maxWidth: '580px', padding: '1.5rem', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="glass-card fade-in modal-content" role="dialog" aria-label={t('usersManagement')} style={{ width: '100%', maxWidth: '580px', padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h3 style={{ fontSize: '1rem', margin: 0 }}>{t('usersManagement')}</h3>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>

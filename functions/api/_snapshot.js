@@ -1,4 +1,4 @@
-const MAX_SNAPSHOTS = 50;
+const MAX_SNAPSHOTS = 20;
 const TTL_SECONDS = 86400 * 30; // 30 days
 
 export async function saveSnapshot(kv, zoneId, username, action, cfToken) {
