@@ -1,3 +1,5 @@
+import { logAudit } from '../../_audit.js';
+
 export async function onRequestGet(context) {
     const { cfToken } = context.data;
     const { zoneId } = context.params;
@@ -31,6 +33,10 @@ export async function onRequestPost(context) {
     });
 
     const data = await response.json();
+    if (data.success) {
+        const username = context.data.user?.username || 'client';
+        await logAudit(context.env.CF_DNS_KV, username, 'hostname.create', `${body.hostname} (zone: ${zoneId})`);
+    }
     return new Response(JSON.stringify(data), {
         status: response.status,
         headers: { 'Content-Type': 'application/json' }
@@ -54,6 +60,10 @@ export async function onRequestDelete(context) {
     });
 
     const data = await response.json();
+    if (data.success) {
+        const username = context.data.user?.username || 'client';
+        await logAudit(context.env.CF_DNS_KV, username, 'hostname.delete', `hostname: ${hostnameId} (zone: ${zoneId})`);
+    }
     return new Response(JSON.stringify(data), {
         status: response.status,
         headers: { 'Content-Type': 'application/json' }
@@ -79,6 +89,10 @@ export async function onRequestPatch(context) {
     });
 
     const data = await response.json();
+    if (data.success) {
+        const username = context.data.user?.username || 'client';
+        await logAudit(context.env.CF_DNS_KV, username, 'hostname.update', `hostname: ${hostnameId} (zone: ${zoneId})`);
+    }
     return new Response(JSON.stringify(data), {
         status: response.status,
         headers: { 'Content-Type': 'application/json' }

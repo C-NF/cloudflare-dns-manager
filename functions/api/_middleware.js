@@ -1,9 +1,23 @@
+import { checkRateLimit } from './_rate-limit.js';
+
 export async function onRequest(context) {
     const { request, env, next } = context;
     const url = new URL(request.url);
 
-    // Skip auth for login API
-    if (url.pathname === '/api/login') {
+    // Rate limiting on auth endpoints (before any processing)
+    const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+    const retryAfter = await checkRateLimit(env.CF_DNS_KV, ip, url.pathname);
+    if (retryAfter) {
+        return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) }
+        });
+    }
+
+    // Skip auth for public APIs
+    if (url.pathname === '/api/login' || url.pathname === '/api/setup-account' || url.pathname === '/api/register' || url.pathname === '/api/public-settings'
+        || url.pathname === '/api/passkey/login-options' || url.pathname === '/api/passkey/login-verify'
+        || url.pathname === '/api/refresh') {
         return next();
     }
 
@@ -17,7 +31,7 @@ export async function onRequest(context) {
         return next();
     }
 
-    // Priority 2: Server Mode (JWT provided, using server's CF_API_TOKEN)
+    // Priority 2: Server Mode (JWT provided)
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         const serverSecret = env.APP_PASSWORD;
@@ -32,13 +46,44 @@ export async function onRequest(context) {
         try {
             const { jwtVerify } = await import('jose');
             const secret = new TextEncoder().encode(serverSecret);
-            await jwtVerify(token, secret);
+            const { payload } = await jwtVerify(token, secret);
 
-            // JWT is valid
+            // Extract user info from JWT
+            const username = payload.sub || 'admin';
+            const role = payload.role || (payload.admin ? 'admin' : 'user');
+            context.data.user = { username, role };
+
+            // Admin-only routes: /api/admin/users (settings is accessible by all users for their own tokens)
+            if (url.pathname.startsWith('/api/admin/') && url.pathname !== '/api/admin/settings') {
+                if (role !== 'admin') {
+                    return new Response(JSON.stringify({ error: 'Admin access required.' }), {
+                        status: 403,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+            }
+
+            // Admin routes, settings, account management, and passkey management don't need a CF token
+            if (url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/account/') || url.pathname.startsWith('/api/passkey/')) {
+                return next();
+            }
+
+            // Resolve CF token from per-user storage
             const accountIndex = parseInt(request.headers.get('X-Managed-Account-Index') || '0');
-            let serverToken = env.CF_API_TOKEN;
-            if (accountIndex > 0) {
-                serverToken = env[`CF_API_TOKEN${accountIndex}`];
+            let serverToken = null;
+
+            if (env.CF_DNS_KV) {
+                const tokensJson = await env.CF_DNS_KV.get(`USER_TOKENS:${username}`);
+                if (tokensJson) {
+                    const tokens = JSON.parse(tokensJson);
+                    const entry = tokens.find(t => t.id === accountIndex);
+                    if (entry) serverToken = entry.token;
+                }
+            }
+
+            // Fallback: env vars (for backward compat, admin only)
+            if (!serverToken && username === 'admin') {
+                serverToken = accountIndex > 0 ? env[`CF_API_TOKEN${accountIndex}`] : env.CF_API_TOKEN;
             }
 
             if (!serverToken) {
