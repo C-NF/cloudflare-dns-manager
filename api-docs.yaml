@@ -1,0 +1,2829 @@
+openapi: 3.0.3
+info:
+  title: CF DNS Manager API
+  description: |
+    REST API for CF DNS Manager, a Cloudflare DNS management application
+    deployed on Cloudflare Pages with Functions. Supports both client-mode
+    (direct Cloudflare API token) and server-mode (JWT-based authentication
+    with managed tokens stored in KV).
+
+    ## Authentication Modes
+
+    - **Client Mode**: Pass a Cloudflare API token directly via the
+      `X-Cloudflare-Token` header. No login required.
+    - **Server Mode**: Authenticate with username/password via `/api/login` to
+      receive a JWT access token (15 min) and a refresh token (7 days). Use the
+      access token as a Bearer token in the `Authorization` header.
+
+    ## Rate Limiting
+
+    All endpoints are rate-limited per IP address using a sliding window. When
+    the limit is exceeded, responses return HTTP 429 with a `Retry-After`
+    header indicating seconds until the window resets.
+
+    ## CSRF Protection
+
+    All state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) must include
+    `Content-Type: application/json` (except `/api/zones/{zoneId}/dns_import`
+    which also accepts multipart form data).
+  version: 26.2.7
+  license:
+    name: MIT
+
+servers:
+  - url: /
+    description: Same-origin (Cloudflare Pages deployment)
+
+tags:
+  - name: Authentication
+    description: Login, registration, token refresh, logout, and TOTP verification
+  - name: Passkeys
+    description: WebAuthn/FIDO2 passkey registration and authentication
+  - name: Zones
+    description: Cloudflare zone listing
+  - name: DNS Records
+    description: CRUD operations on DNS records within a zone
+  - name: DNS Bulk
+    description: Bulk DNS operations across multiple zones
+  - name: DNS History
+    description: DNS snapshot and rollback
+  - name: Custom Hostnames
+    description: Cloudflare for SaaS custom hostname management
+  - name: Fallback Origin
+    description: Custom hostname fallback origin management
+  - name: Search
+    description: Global DNS record search across all zones
+  - name: Admin - Users
+    description: User management (admin only)
+  - name: Admin - Settings
+    description: Per-user token/account management (all authenticated users)
+  - name: Admin - App Settings
+    description: Application-level settings (admin only)
+  - name: Admin - Audit Log
+    description: Audit log viewing and management (admin only)
+  - name: Account
+    description: Self-service account management (password, TOTP)
+  - name: Public
+    description: Unauthenticated public endpoints
+
+# ---------------------------------------------------------------------------
+# Security Schemes
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    BearerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token obtained from `/api/login`, `/api/verify-totp`,
+        `/api/passkey/login-verify`, or `/api/refresh`. Expires in 15 minutes.
+    CloudflareToken:
+      type: apiKey
+      in: header
+      name: X-Cloudflare-Token
+      description: |
+        A valid Cloudflare API token passed directly by the client. When
+        present, the server proxies requests to the Cloudflare API using this
+        token (client mode).
+
+  # -------------------------------------------------------------------------
+  # Headers
+  # -------------------------------------------------------------------------
+  headers:
+    RetryAfter:
+      description: Seconds until the rate limit window resets
+      schema:
+        type: integer
+
+  # -------------------------------------------------------------------------
+  # Reusable Schemas
+  # -------------------------------------------------------------------------
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+      required:
+        - error
+
+    Success:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Account slot index
+        name:
+          type: string
+          description: Display name for the account
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Username (defaults to "admin" if omitted)
+        password:
+          type: string
+          description: SHA-256 hash of the user password
+      required:
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token (15 min expiry)
+        refreshToken:
+          type: string
+          description: JWT refresh token (7 day expiry)
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        role:
+          type: string
+          enum: [admin, user]
+        username:
+          type: string
+
+    LoginTOTPRequired:
+      type: object
+      properties:
+        requiresTOTP:
+          type: boolean
+          example: true
+        username:
+          type: string
+      description: Returned when the user has TOTP enabled and must complete a second authentication step.
+
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Lowercase alphanumeric username (cannot be "admin")
+        password:
+          type: string
+          description: SHA-256 hash of the desired password
+      required:
+        - username
+        - password
+
+    SetupAccountRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        setupToken:
+          type: string
+          description: One-time setup token provided by admin
+        password:
+          type: string
+          description: SHA-256 hash of the desired password
+      required:
+        - username
+        - setupToken
+        - password
+
+    VerifyTOTPRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          description: SHA-256 hash of the user password
+        code:
+          type: string
+          description: 6-digit TOTP code
+      required:
+        - password
+        - code
+
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+
+    RefreshResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: New JWT access token (15 min expiry)
+        accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        role:
+          type: string
+          enum: [admin, user]
+        username:
+          type: string
+
+    LogoutRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          description: Refresh token to revoke (optional)
+
+    PublicSettings:
+      type: object
+      properties:
+        openRegistration:
+          type: boolean
+          description: Whether self-registration is enabled
+
+    CloudflareResponse:
+      type: object
+      description: Standard Cloudflare API v4 envelope
+      properties:
+        success:
+          type: boolean
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: integer
+              message:
+                type: string
+        messages:
+          type: array
+          items:
+            type: object
+        result:
+          description: Response payload (varies by endpoint)
+        result_info:
+          type: object
+          properties:
+            page:
+              type: integer
+            per_page:
+              type: integer
+            count:
+              type: integer
+            total_count:
+              type: integer
+
+    DnsRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - A
+            - AAAA
+            - CNAME
+            - TXT
+            - MX
+            - NS
+            - SRV
+            - CAA
+            - PTR
+            - SPF
+            - LOC
+            - NAPTR
+            - CERT
+            - DNSKEY
+            - DS
+            - HTTPS
+            - SSHFP
+            - SVCB
+            - TLSA
+            - URI
+        name:
+          type: string
+          maxLength: 253
+        content:
+          type: string
+          maxLength: 4096
+        ttl:
+          type: integer
+          minimum: 1
+          description: TTL in seconds (1 = automatic)
+        proxied:
+          type: boolean
+          description: Only applicable to A, AAAA, and CNAME records
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 65535
+          description: Priority for MX and SRV records
+        data:
+          type: object
+          description: Structured data for SRV, CAA, and similar record types
+        comment:
+          type: string
+
+    DnsRecordInput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - A
+            - AAAA
+            - CNAME
+            - TXT
+            - MX
+            - NS
+            - SRV
+            - CAA
+            - PTR
+            - SPF
+            - LOC
+            - NAPTR
+            - CERT
+            - DNSKEY
+            - DS
+            - HTTPS
+            - SSHFP
+            - SVCB
+            - TLSA
+            - URI
+        name:
+          type: string
+          maxLength: 253
+        content:
+          type: string
+          maxLength: 4096
+        ttl:
+          type: integer
+          minimum: 1
+        proxied:
+          type: boolean
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        comment:
+          type: string
+      required:
+        - type
+        - name
+        - content
+
+    DnsBulkImportRequest:
+      type: object
+      properties:
+        records:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/DnsRecordInput'
+      required:
+        - records
+
+    DnsBulkImportResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        created:
+          type: integer
+        total:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              error:
+                type: string
+
+    Snapshot:
+      type: object
+      properties:
+        key:
+          type: string
+          description: KV key for this snapshot
+        timestamp:
+          type: string
+          format: date-time
+        username:
+          type: string
+        action:
+          type: string
+
+    SnapshotFull:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        username:
+          type: string
+        action:
+          type: string
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsRecord'
+
+    SnapshotListResponse:
+      type: object
+      properties:
+        snapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snapshot'
+        total:
+          type: integer
+        page:
+          type: integer
+        per_page:
+          type: integer
+        total_pages:
+          type: integer
+
+    RollbackRequest:
+      type: object
+      properties:
+        snapshotKey:
+          type: string
+      required:
+        - snapshotKey
+
+    RollbackResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        results:
+          type: object
+          properties:
+            deleted:
+              type: integer
+            created:
+              type: integer
+            updated:
+              type: integer
+            errors:
+              type: array
+              items:
+                type: object
+
+    DnsBatchRequest:
+      type: object
+      description: Cloudflare DNS records batch API payload
+      properties:
+        deletes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+        posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsRecordInput'
+
+    CustomHostnameInput:
+      type: object
+      properties:
+        hostname:
+          type: string
+        ssl:
+          type: object
+          properties:
+            method:
+              type: string
+            type:
+              type: string
+        custom_metadata:
+          type: object
+
+    FallbackOriginInput:
+      type: object
+      properties:
+        origin:
+          type: string
+          description: Fallback origin hostname
+      required:
+        - origin
+
+    BulkOperationRequest:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [create, delete_matching]
+        zones:
+          oneOf:
+            - type: string
+              enum: [all]
+            - type: array
+              items:
+                type: string
+              maxItems: 100
+        record:
+          type: object
+          properties:
+            type:
+              type: string
+            name:
+              type: string
+            content:
+              type: string
+            ttl:
+              type: integer
+            proxied:
+              type: boolean
+      required:
+        - operation
+        - zones
+        - record
+
+    BulkOperationResult:
+      type: object
+      properties:
+        zoneId:
+          type: string
+        zoneName:
+          type: string
+        success:
+          type: boolean
+        count:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+
+    BulkOperationResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkOperationResult'
+
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/DnsRecord'
+              - type: object
+                properties:
+                  zoneName:
+                    type: string
+                  zoneId:
+                    type: string
+        total:
+          type: integer
+        zonesSearched:
+          type: integer
+
+    User:
+      type: object
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, pending]
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        hasSetupToken:
+          type: boolean
+        allowedZones:
+          type: array
+          items:
+            type: string
+
+    CreateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Lowercase alphanumeric, hyphens, underscores only
+        role:
+          type: string
+          enum: [admin, user]
+          default: user
+        allowedZones:
+          type: array
+          items:
+            type: string
+          description: Zone names the user may access (empty = all zones)
+      required:
+        - username
+
+    CreateUserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        username:
+          type: string
+        setupToken:
+          type: string
+          description: One-time token the user needs to set their password
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        resetSetupToken:
+          type: boolean
+          description: If true, regenerates setup token and resets user to pending
+        allowedZones:
+          type: array
+          items:
+            type: string
+      required:
+        - username
+
+    AppSettings:
+      type: object
+      properties:
+        openRegistration:
+          type: boolean
+          description: Whether self-registration is enabled
+        webhookUrl:
+          type: string
+          description: Webhook URL for event notifications
+
+    AppSettingsUpdate:
+      type: object
+      properties:
+        openRegistration:
+          type: boolean
+        webhookUrl:
+          type: string
+
+    AuditEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        username:
+          type: string
+        action:
+          type: string
+        detail:
+          type: string
+
+    AuditLogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEntry'
+        total:
+          type: integer
+        page:
+          type: integer
+        perPage:
+          type: integer
+        totalPages:
+          type: integer
+
+    PasskeyCredential:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+          description: SHA-256 hash of the current password
+        newPassword:
+          type: string
+          description: SHA-256 hash of the new password
+      required:
+        - currentPassword
+        - newPassword
+
+    TOTPSetupResponse:
+      type: object
+      properties:
+        secret:
+          type: string
+          description: Base32-encoded TOTP secret
+        uri:
+          type: string
+          description: otpauth:// URI for authenticator app provisioning
+
+    TOTPConfirmRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 6-digit TOTP code from the authenticator app
+      required:
+        - code
+
+    TOTPDisableRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 6-digit TOTP code to confirm disabling
+      required:
+        - code
+
+    SettingsAccountList:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              source:
+                type: string
+
+    SaveTokenRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Cloudflare API token
+        accountIndex:
+          type: integer
+          description: Account slot index (default 0)
+        name:
+          type: string
+          description: Display name for the account
+        user:
+          type: string
+          description: Target username (admin only, to manage other users' tokens)
+      required:
+        - token
+
+    RateLimitError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Too many requests. Please try again later.
+
+  # -------------------------------------------------------------------------
+  # Reusable Responses
+  # -------------------------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+    ServerError:
+      description: Internal server error (typically KV storage not configured)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+# ===========================================================================
+# Paths
+# ===========================================================================
+paths:
+
+  # -------------------------------------------------------------------------
+  # Authentication
+  # -------------------------------------------------------------------------
+  /api/login:
+    post:
+      tags: [Authentication]
+      summary: Password login
+      description: |
+        Authenticate with username and password. If the user has TOTP enabled,
+        returns `requiresTOTP: true` instead of tokens, and the client must
+        follow up with `/api/verify-totp`.
+
+        The password field must contain the SHA-256 hex hash of the raw
+        password (hashing is done client-side).
+
+        Account lockout: after 5 failed attempts, the account is locked for 15
+        minutes.
+      operationId: login
+      security: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: |
+            Login successful. Returns JWT tokens and account list. If the user
+            has TOTP enabled, returns `requiresTOTP: true` instead.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LoginResponse'
+                  - $ref: '#/components/schemas/LoginTOTPRequired'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid username or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account pending setup
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      needsSetup:
+                        type: boolean
+        '429':
+          description: Account locked due to too many failed attempts
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  lockedUntil:
+                    type: integer
+                    description: Seconds until lockout expires
+
+  /api/register:
+    post:
+      tags: [Authentication]
+      summary: Self-registration
+      description: |
+        Register a new user account. Only available when open registration is
+        enabled in app settings. The `admin` username is reserved and cannot be
+        used. Username must be lowercase alphanumeric with hyphens and
+        underscores.
+      operationId: register
+      security: []
+      x-rate-limit:
+        max: 5
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Registration is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/setup-account:
+    post:
+      tags: [Authentication]
+      summary: Set up invited user account
+      description: |
+        Allows a newly invited user to set their password using the one-time
+        setup token generated by an admin. The admin username cannot be set up
+        this way.
+      operationId: setupAccount
+      security: []
+      x-rate-limit:
+        max: 5
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupAccountRequest'
+      responses:
+        '200':
+          description: Account setup successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Invalid setup token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/verify-totp:
+    post:
+      tags: [Authentication]
+      summary: Verify TOTP after login
+      description: |
+        Complete the two-factor authentication flow when the login endpoint
+        returns `requiresTOTP: true`. Re-authenticates the password and
+        verifies the TOTP code, then issues JWT tokens.
+      operationId: verifyTotp
+      security: []
+      x-rate-limit:
+        max: 5
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyTOTPRequest'
+      responses:
+        '200':
+          description: TOTP verification successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid credentials or TOTP code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account pending setup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Account locked
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh JWT access token
+      description: |
+        Exchange a valid refresh token for a new short-lived access token. The
+        refresh token is validated and checked against the revocation list.
+        Returns a new access token, account list, role, and username.
+      operationId: refreshToken
+      security: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid, expired, or revoked refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout and revoke refresh token
+      description: |
+        Logs the user out. If a refresh token is provided in the body, it is
+        added to the revocation list (with 7-day TTL matching refresh token
+        lifetime). Requires a valid Bearer JWT.
+      operationId: logout
+      security:
+        - BearerJWT: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # -------------------------------------------------------------------------
+  # Passkeys (WebAuthn)
+  # -------------------------------------------------------------------------
+  /api/passkey/register-options:
+    post:
+      tags: [Passkeys]
+      summary: Get passkey registration options
+      description: |
+        Generate WebAuthn registration options for the authenticated user.
+        Returns a challenge and credential creation options. The challenge is
+        stored in KV with a 5-minute TTL.
+
+        **Note**: This endpoint uses GET semantics but is listed as POST in the
+        route specification; the actual implementation exports `onRequestGet`.
+      operationId: passkeyRegisterOptions
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      responses:
+        '200':
+          description: WebAuthn registration options
+          content:
+            application/json:
+              schema:
+                type: object
+                description: PublicKeyCredentialCreationOptionsJSON from @simplewebauthn/server
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/passkey/register-verify:
+    post:
+      tags: [Passkeys]
+      summary: Verify passkey registration
+      description: |
+        Verify the WebAuthn registration response from the authenticator and
+        store the credential. The stored challenge is consumed during
+        verification.
+      operationId: passkeyRegisterVerify
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: RegistrationResponseJSON from @simplewebauthn/browser
+              properties:
+                credentialName:
+                  type: string
+                  description: Optional display name for the passkey
+      responses:
+        '200':
+          description: Passkey registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  credential:
+                    $ref: '#/components/schemas/PasskeyCredential'
+        '400':
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/passkey/login-options:
+    post:
+      tags: [Passkeys]
+      summary: Get passkey login options
+      description: |
+        Generate WebAuthn authentication options for a given username. Returns
+        allowed credentials and a challenge. No authentication required.
+      operationId: passkeyLoginOptions
+      security: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        '200':
+          description: WebAuthn authentication options
+          content:
+            application/json:
+              schema:
+                type: object
+                description: PublicKeyCredentialRequestOptionsJSON from @simplewebauthn/server
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: No passkeys registered for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/passkey/login-verify:
+    post:
+      tags: [Passkeys]
+      summary: Verify passkey login
+      description: |
+        Verify the WebAuthn authentication response and issue JWT tokens.
+        No prior authentication required. On success, returns the same
+        response shape as `/api/login`.
+      operationId: passkeyLoginVerify
+      security: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: AuthenticationResponseJSON from @simplewebauthn/browser
+      responses:
+        '200':
+          description: Passkey authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Passkey authentication failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/passkey/credentials:
+    get:
+      tags: [Passkeys]
+      summary: List passkey credentials
+      description: |
+        List all passkey credentials for the authenticated user. Returns safe
+        fields only (no public keys).
+      operationId: listPasskeyCredentials
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      responses:
+        '200':
+          description: Passkey credential list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PasskeyCredential'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Passkeys]
+      summary: Delete a passkey credential
+      description: |
+        Delete a specific passkey credential by its credential ID.
+      operationId: deletePasskeyCredential
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 10
+        windowSeconds: 60
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Credential ID to delete
+      responses:
+        '200':
+          description: Credential deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  remaining:
+                    type: integer
+                    description: Number of remaining passkey credentials
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # Public Settings
+  # -------------------------------------------------------------------------
+  /api/public-settings:
+    get:
+      tags: [Public]
+      summary: Get public application settings
+      description: |
+        Returns non-sensitive application settings needed by the login page
+        (e.g., whether open registration is enabled). No authentication required.
+      operationId: getPublicSettings
+      security: []
+      responses:
+        '200':
+          description: Public settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicSettings'
+
+  # -------------------------------------------------------------------------
+  # Zones
+  # -------------------------------------------------------------------------
+  /api/zones:
+    get:
+      tags: [Zones]
+      summary: List Cloudflare zones
+      description: |
+        Retrieve the list of zones from the Cloudflare API. For non-admin
+        users, the list is filtered based on their `allowedZones` setting.
+        Returns up to 50 zones per page.
+      operationId: listZones
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      responses:
+        '200':
+          description: Cloudflare zones list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # DNS Records
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/dns_records:
+    get:
+      tags: [DNS Records]
+      summary: List DNS records
+      description: |
+        List all DNS records for a zone. Returns up to 100 records per page.
+        Proxies the Cloudflare API response directly.
+      operationId: listDnsRecords
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DNS records list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      tags: [DNS Records]
+      summary: Create a DNS record
+      description: |
+        Create a new DNS record in the specified zone. Input is validated
+        server-side before forwarding to the Cloudflare API. A DNS snapshot is
+        saved before the mutation.
+      operationId: createDnsRecord
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsRecordInput'
+      responses:
+        '200':
+          description: DNS record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        message:
+                          type: string
+                  messages:
+                    type: array
+                    items:
+                      type: object
+                  result:
+                    nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      tags: [DNS Records]
+      summary: Update a DNS record
+      description: |
+        Update an existing DNS record. The record ID must be provided as a
+        query parameter (`?id=...`). Input is validated server-side. A DNS
+        snapshot is saved before the mutation.
+      operationId: updateDnsRecord
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          description: DNS record ID to update
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsRecordInput'
+      responses:
+        '200':
+          description: DNS record updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          description: Missing record ID or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [DNS Records]
+      summary: Delete a DNS record
+      description: |
+        Delete a DNS record by ID (provided as query parameter `?id=...`). A
+        DNS snapshot is saved before the deletion.
+      operationId: deleteDnsRecord
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          description: DNS record ID to delete
+          schema:
+            type: string
+      responses:
+        '200':
+          description: DNS record deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          description: Missing record ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # DNS Import / Export
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/dns_import:
+    post:
+      tags: [DNS Records]
+      summary: Bulk import DNS records
+      description: |
+        Import multiple DNS records into a zone. Supports two modes:
+
+        - **JSON mode** (`Content-Type: application/json`): Send a JSON body
+          with `{ records: [...] }`. Maximum 100 records per import. Each
+          record is validated and created sequentially. Returns a summary with
+          created count and per-record errors.
+
+        - **BIND file mode** (`Content-Type: multipart/form-data`): Upload a
+          BIND zone file. The request is proxied directly to the Cloudflare
+          DNS import API.
+
+        A DNS snapshot is saved before the import (JSON mode only).
+      operationId: importDnsRecords
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsBulkImportRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: BIND zone file
+      responses:
+        '200':
+          description: Import results
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DnsBulkImportResponse'
+                  - $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/zones/{zoneId}/dns_export:
+    get:
+      tags: [DNS Records]
+      summary: Export DNS records as BIND zone file
+      description: |
+        Export all DNS records for a zone in BIND format. The response is a
+        plain-text file with a `Content-Disposition` header for download.
+      operationId: exportDnsRecords
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: BIND zone file
+          content:
+            text/plain:
+              schema:
+                type: string
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="dns_records_{zoneId}.txt"'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # DNS History (Snapshots)
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/dns_history:
+    get:
+      tags: [DNS History]
+      summary: List DNS snapshots or get full snapshot
+      description: |
+        List paginated DNS snapshots for a zone. If `?full={key}` is provided,
+        returns the complete snapshot including all DNS records (for rollback
+        preview).
+      operationId: listDnsHistory
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: full
+          in: query
+          description: KV key of a specific snapshot to retrieve in full
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Snapshot list or full snapshot
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SnapshotListResponse'
+                  - type: object
+                    properties:
+                      snapshot:
+                        $ref: '#/components/schemas/SnapshotFull'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Snapshot not found (when using ?full=)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [DNS History]
+      summary: Rollback to a DNS snapshot
+      description: |
+        Roll back a zone's DNS records to a previous snapshot state. Computes
+        a diff between current records and the target snapshot, then applies
+        deletions, creations, and updates as needed. A new snapshot of the
+        current state is saved before rollback.
+      operationId: rollbackDnsHistory
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RollbackRequest'
+      responses:
+        '200':
+          description: Rollback results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '502':
+          description: Failed to fetch current DNS records from Cloudflare
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # -------------------------------------------------------------------------
+  # DNS Batch
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/dns_batch:
+    post:
+      tags: [DNS Records]
+      summary: Batch DNS operations
+      description: |
+        Perform batch create and delete operations on DNS records within a
+        single zone. Proxied to the Cloudflare DNS records batch API.
+      operationId: batchDnsRecords
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DnsBatchRequest'
+      responses:
+        '200':
+          description: Batch operation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # Custom Hostnames (Cloudflare for SaaS)
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/custom_hostnames:
+    get:
+      tags: [Custom Hostnames]
+      summary: List custom hostnames
+      description: |
+        List all custom hostnames for a zone. Returns up to 100 custom
+        hostnames. Proxied to the Cloudflare API.
+      operationId: listCustomHostnames
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Custom hostnames list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    post:
+      tags: [Custom Hostnames]
+      summary: Create a custom hostname
+      description: |
+        Create a new custom hostname in the specified zone. Proxied to the
+        Cloudflare API.
+      operationId: createCustomHostname
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomHostnameInput'
+      responses:
+        '200':
+          description: Custom hostname created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    patch:
+      tags: [Custom Hostnames]
+      summary: Update a custom hostname
+      description: |
+        Update an existing custom hostname by ID (provided as query parameter
+        `?id=...`). Proxied to the Cloudflare API.
+      operationId: updateCustomHostname
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          description: Custom hostname ID to update
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomHostnameInput'
+      responses:
+        '200':
+          description: Custom hostname updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          description: Missing hostname ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      tags: [Custom Hostnames]
+      summary: Delete a custom hostname
+      description: |
+        Delete a custom hostname by ID (provided as query parameter `?id=...`).
+        Proxied to the Cloudflare API.
+      operationId: deleteCustomHostname
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          description: Custom hostname ID to delete
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Custom hostname deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '400':
+          description: Missing hostname ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # Fallback Origin
+  # -------------------------------------------------------------------------
+  /api/zones/{zoneId}/fallback_origin:
+    get:
+      tags: [Fallback Origin]
+      summary: Get fallback origin
+      description: |
+        Retrieve the current fallback origin configuration for custom
+        hostnames in the specified zone.
+      operationId: getFallbackOrigin
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Fallback origin configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+    put:
+      tags: [Fallback Origin]
+      summary: Set fallback origin
+      description: |
+        Set or update the fallback origin for custom hostnames in the
+        specified zone.
+      operationId: setFallbackOrigin
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: zoneId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FallbackOriginInput'
+      responses:
+        '200':
+          description: Fallback origin updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudflareResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  # -------------------------------------------------------------------------
+  # DNS Bulk (Cross-Zone)
+  # -------------------------------------------------------------------------
+  /api/dns_bulk:
+    post:
+      tags: [DNS Bulk]
+      summary: Bulk DNS operations across zones
+      description: |
+        Perform DNS operations across multiple zones simultaneously. Supports
+        two operations:
+
+        - **create**: Create the same DNS record in all specified zones. The
+          record name is automatically expanded to the FQDN for each zone.
+        - **delete_matching**: Delete records matching the given criteria
+          (type, name, content) from all specified zones. Any filter field can
+          be omitted to match all values.
+
+        The `zones` field can be `"all"` (all zones accessible to the user) or
+        an array of zone IDs (max 100). Non-admin users are restricted to
+        their allowed zones.
+      operationId: bulkDnsOperation
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkOperationRequest'
+      responses:
+        '200':
+          description: Bulk operation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkOperationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '502':
+          description: Failed to fetch zones from Cloudflare
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # -------------------------------------------------------------------------
+  # Search
+  # -------------------------------------------------------------------------
+  /api/search:
+    get:
+      tags: [Search]
+      summary: Global DNS record search
+      description: |
+        Search DNS records across all accessible zones. The query is matched
+        against record name, content, and type. Results are capped at 100.
+        Non-admin users only see results from their allowed zones.
+      operationId: searchDnsRecords
+      security:
+        - BearerJWT: []
+        - CloudflareToken: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query (minimum 2 characters)
+          schema:
+            type: string
+            minLength: 2
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Search query too short
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Admin - Users
+  # -------------------------------------------------------------------------
+  /api/admin/users:
+    get:
+      tags: [Admin - Users]
+      summary: List all users
+      description: |
+        List all users including the built-in admin account. Returns username,
+        role, status, creation date, whether a setup token exists, and allowed
+        zones for each user. Admin only.
+      operationId: listUsers
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Admin - Users]
+      summary: Create a new user
+      description: |
+        Create a new user with a setup token (no password). The setup token
+        must be shared with the user who can then use `/api/setup-account` to
+        set their password. The `admin` username is reserved. Admin only.
+      operationId: createUser
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '200':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateUserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Admin - Users]
+      summary: Update a user
+      description: |
+        Update user properties (role, allowed zones). Optionally reset the
+        setup token which puts the user back to pending status. The admin user
+        cannot be modified. Admin only.
+      operationId: updateUser
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  setupToken:
+                    type: string
+                    description: Present only when resetSetupToken was true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Admin - Users]
+      summary: Delete a user
+      description: |
+        Delete a user account and all associated tokens. The admin user
+        cannot be deleted. Admin only.
+      operationId: deleteUser
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      parameters:
+        - name: username
+          in: query
+          required: true
+          description: Username to delete
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Admin - Settings (per-user token management)
+  # -------------------------------------------------------------------------
+  /api/admin/settings:
+    get:
+      tags: [Admin - Settings]
+      summary: List managed accounts / tokens
+      description: |
+        List the authenticated user's configured Cloudflare API token slots.
+        Admins can query other users' tokens by passing `?user={username}`.
+        If `?retrieve={index}` is provided, returns the actual token value
+        for that slot. All authenticated users can access this endpoint for
+        their own tokens.
+      operationId: listSettings
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      parameters:
+        - name: user
+          in: query
+          description: Target username (admin only)
+          schema:
+            type: string
+        - name: retrieve
+          in: query
+          description: Account index to retrieve the actual token value
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Account list or token value
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SettingsAccountList'
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Token slot not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Admin - Settings]
+      summary: Save a Cloudflare API token
+      description: |
+        Save or update a Cloudflare API token in the user's token storage.
+        The token is verified against the Cloudflare API before saving.
+        Admins can manage other users' tokens by including a `user` field.
+      operationId: saveToken
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveTokenRequest'
+      responses:
+        '200':
+          description: Token saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  id:
+                    type: integer
+        '400':
+          description: Token missing or invalid/inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Admin - Settings]
+      summary: Remove a Cloudflare API token
+      description: |
+        Remove a Cloudflare API token from the user's token storage by account
+        index. Admins can manage other users' tokens by passing `?user=`.
+      operationId: deleteToken
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      parameters:
+        - name: index
+          in: query
+          description: Account index to remove (default 0)
+          schema:
+            type: integer
+            default: 0
+        - name: user
+          in: query
+          description: Target username (admin only)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Admin - App Settings
+  # -------------------------------------------------------------------------
+  /api/admin/app-settings:
+    get:
+      tags: [Admin - App Settings]
+      summary: Get application settings
+      description: |
+        Retrieve application-level settings including open registration toggle
+        and webhook URL. Admin only.
+      operationId: getAppSettings
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      responses:
+        '200':
+          description: Application settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settings:
+                    $ref: '#/components/schemas/AppSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags: [Admin - App Settings]
+      summary: Update application settings
+      description: |
+        Update application-level settings. Only known keys (`openRegistration`,
+        `webhookUrl`) are accepted. Admin only.
+      operationId: updateAppSettings
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppSettingsUpdate'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  settings:
+                    $ref: '#/components/schemas/AppSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Admin - Audit Log
+  # -------------------------------------------------------------------------
+  /api/admin/audit-log:
+    get:
+      tags: [Admin - Audit Log]
+      summary: Get audit log
+      description: |
+        Retrieve the paginated audit log. Maximum 500 entries are retained.
+        Admin only.
+      operationId: getAuditLog
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Admin - Audit Log]
+      summary: Clear audit log
+      description: |
+        Delete all audit log entries. Admin only.
+      operationId: clearAuditLog
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 20
+        windowSeconds: 60
+      responses:
+        '200':
+          description: Audit log cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Account - Password
+  # -------------------------------------------------------------------------
+  /api/account/password:
+    post:
+      tags: [Account]
+      summary: Change password
+      description: |
+        Change the authenticated user's password. Requires the current
+        password for verification. The admin user's password is managed via
+        environment variables and cannot be changed through this endpoint.
+        Both passwords should be SHA-256 hashes (client-side hashing).
+      operationId: changePassword
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Missing fields or admin user cannot change password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password is incorrect
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  # -------------------------------------------------------------------------
+  # Account - TOTP
+  # -------------------------------------------------------------------------
+  /api/account/totp:
+    get:
+      tags: [Account]
+      summary: Generate TOTP setup secret
+      description: |
+        Generate a new TOTP secret and store it as pending (10-minute TTL).
+        Returns the base32 secret and an `otpauth://` URI for provisioning an
+        authenticator app. The user must confirm by calling POST with a valid
+        code.
+      operationId: getTotpSetup
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      responses:
+        '200':
+          description: TOTP setup secret and URI
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPSetupResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [Account]
+      summary: Confirm TOTP setup
+      description: |
+        Confirm TOTP setup by verifying a code generated from the pending
+        secret. On success, the TOTP secret is persisted and two-factor
+        authentication is enabled for the user.
+      operationId: confirmTotpSetup
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPConfirmRequest'
+      responses:
+        '200':
+          description: TOTP enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Missing code, invalid code, or no pending setup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [Account]
+      summary: Disable TOTP
+      description: |
+        Disable TOTP two-factor authentication. Requires a valid TOTP code
+        to confirm the action.
+      operationId: disableTotp
+      security:
+        - BearerJWT: []
+      x-rate-limit:
+        max: 30
+        windowSeconds: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPDisableRequest'
+      responses:
+        '200':
+          description: TOTP disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Success'
+        '400':
+          description: Missing code or TOTP not enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invalid TOTP code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/ServerError'
