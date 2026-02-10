@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Globe, Server, User, Plus, Trash2, RefreshCw, CheckCircle, ChevronDown, Upload, Download, FileText, Search, Clock } from 'lucide-react';
+import { Globe, Server, User, Plus, Trash2, RefreshCw, CheckCircle, ChevronDown, Upload, Download, FileText, Search, Clock, Database } from 'lucide-react';
 import { getAuthHeaders } from '../utils/auth.ts';
 import ConfirmModal from './ConfirmModal.jsx';
 import DnsRecordModal from './DnsRecordModal.jsx';
@@ -9,6 +9,7 @@ import DnsRecordsTab from './DnsRecordsTab.jsx';
 import SaasTab from './SaasTab.jsx';
 
 const ScheduledChangesModal = React.lazy(() => import('./ScheduledChangesModal.jsx'));
+const CacheManagement = React.lazy(() => import('./CacheManagement.jsx'));
 
 const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, auth, onBack, t, showToast, onAddAccount, onAddSession, onToggleZoneStorage, zoneStorageLoading }, ref) => {
     const [tab, setTab] = useState('dns');
@@ -538,8 +539,37 @@ const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zone
                 >
                     {t('saasHostnames')}
                 </button>
+                <button
+                    className="btn"
+                    style={{
+                        background: 'transparent',
+                        color: tab === 'cache' ? 'var(--primary)' : 'var(--text-muted)',
+                        borderBottom: tab === 'cache' ? '2px solid var(--primary)' : 'none',
+                        borderRadius: 0,
+                        padding: '0.75rem 0',
+                        fontWeight: tab === 'cache' ? '700' : '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}
+                    onClick={() => setTab('cache')}
+                >
+                    <Database size={14} />
+                    {t('cacheTab')}
+                </button>
             </div>
 
+            {tab === 'cache' ? (
+                <React.Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>}>
+                    <CacheManagement
+                        zone={zone}
+                        getHeaders={getHeaders}
+                        t={t}
+                        showToast={showToast}
+                        openConfirm={openConfirm}
+                    />
+                </React.Suspense>
+            ) : (
             <div className="glass-card" style={{ padding: '1.25rem', overflow: 'hidden' }}>
                 <div className="flex-stack header-stack" style={{ marginBottom: '1.0rem', flexWrap: 'wrap', gap: '1rem' }}>
                     <div className="header-top-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -668,6 +698,7 @@ const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zone
                 </div>
                 )}
             </div>
+            )}
 
             {/* DNS Record Modal */}
             <DnsRecordModal
