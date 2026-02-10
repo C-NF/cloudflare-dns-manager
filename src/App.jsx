@@ -136,10 +136,17 @@ const App = () => {
 
     const selectZone = (zone, authData) => {
         const sessions = authData.sessions || [];
-        if (zone._sessionIdx != null && sessions[zone._sessionIdx]) {
+        // In local mode, set _localToken on auth for the selected zone
+        if (zone._localKey) {
+            const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+            const newAuth = { ...authData, _localToken: localTokens[zone._localKey] || null };
+            setAuth(newAuth);
+            persistAuth(newAuth);
+        } else if (zone._sessionIdx != null && sessions[zone._sessionIdx]) {
             const s = sessions[zone._sessionIdx];
             const newAuth = {
                 ...authData,
+                _localToken: null,
                 token: s.token,
                 username: s.username,
                 role: s.role,
@@ -154,49 +161,59 @@ const App = () => {
 
     const fetchZones = async (authData) => {
         setLoading(true);
-        const sessions = authData.sessions || [{ token: authData.token, username: authData.username, role: authData.role, accounts: authData.accounts || [] }];
+        const globalLocal = localStorage.getItem('global_local_mode') === 'true';
         const allZones = [];
-
-        // Fetch zones for each session+account in parallel
-        const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
         const promises = [];
-        for (let si = 0; si < sessions.length; si++) {
-            const session = sessions[si];
-            const accounts = session.accounts || [];
-            if (accounts.length === 0) {
-                // Check if there's a local token for this session's default account
-                const localKey = `${session.username || 'admin'}_0`;
-                const localToken = localTokens[localKey];
-                const headers = localToken
-                    ? { 'X-Cloudflare-Token': localToken }
-                    : { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': '0' };
+
+        if (globalLocal && authData.mode === 'server') {
+            // Local mode: only use tokens from localStorage
+            const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+            const keys = Object.keys(localTokens);
+            for (const key of keys) {
+                const token = localTokens[key];
                 promises.push(
-                    fetch('/api/zones', { headers }).then(async res => {
+                    fetch('/api/zones', { headers: { 'X-Cloudflare-Token': token } }).then(async res => {
                         if (res.ok) {
                             const data = await res.json();
-                            return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username }));
+                            return (data.result || []).map(z => ({ ...z, _localKey: key, _owner: key }));
                         }
                         return [];
                     }).catch(() => [])
                 );
-                continue;
             }
-            for (const acc of accounts) {
-                // Check if there's a local token for this session+account
-                const localKey = `${session.username || 'admin'}_${acc.id}`;
-                const localToken = localTokens[localKey];
-                const headers = localToken
-                    ? { 'X-Cloudflare-Token': localToken }
-                    : { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': String(acc.id) };
-                promises.push(
-                    fetch('/api/zones', { headers }).then(async res => {
-                        if (res.ok) {
-                            const data = await res.json();
-                            return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username }));
-                        }
-                        return [];
-                    }).catch(() => [])
-                );
+        } else {
+            // Server mode: use JWT + managed accounts
+            const sessions = authData.sessions || [{ token: authData.token, username: authData.username, role: authData.role, accounts: authData.accounts || [] }];
+            for (let si = 0; si < sessions.length; si++) {
+                const session = sessions[si];
+                const accounts = session.accounts || [];
+                if (accounts.length === 0) {
+                    promises.push(
+                        fetch('/api/zones', {
+                            headers: { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': '0' }
+                        }).then(async res => {
+                            if (res.ok) {
+                                const data = await res.json();
+                                return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username }));
+                            }
+                            return [];
+                        }).catch(() => [])
+                    );
+                    continue;
+                }
+                for (const acc of accounts) {
+                    promises.push(
+                        fetch('/api/zones', {
+                            headers: { 'Authorization': `Bearer ${session.token}`, 'X-Managed-Account-Index': String(acc.id) }
+                        }).then(async res => {
+                            if (res.ok) {
+                                const data = await res.json();
+                                return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username }));
+                            }
+                            return [];
+                        }).catch(() => [])
+                    );
+                }
             }
         }
 
@@ -484,7 +501,9 @@ const App = () => {
                 localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
                 localStorage.setItem('global_local_mode', 'true');
                 setIsLocalMode(true);
+                setSelectedZone(null);
                 showToast(t('switchedToLocal'), 'success');
+                fetchZones(auth);
             } else {
                 // Local → Server: move ALL tokens from localStorage back to KV
                 const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
@@ -508,7 +527,7 @@ const App = () => {
                 localStorage.setItem('global_local_mode', 'false');
                 setIsLocalMode(false);
                 showToast(t('switchedToServer'), 'success');
-                // Refresh accounts from server after migration
+                // Clear local token from auth and refresh accounts from server
                 const si = auth.activeSessionIndex || 0;
                 const adminHeaders = { 'Authorization': `Bearer ${auth.token}` };
                 const accRes = await fetch('/api/admin/settings', { headers: adminHeaders });
@@ -517,14 +536,72 @@ const App = () => {
                     const updatedAccounts = accData.accounts || [];
                     const newSessions = [...sessions];
                     if (newSessions[si]) newSessions[si] = { ...newSessions[si], accounts: updatedAccounts };
-                    const newAuth = { ...auth, accounts: updatedAccounts, sessions: newSessions };
+                    const newAuth = { ...auth, _localToken: null, accounts: updatedAccounts, sessions: newSessions };
                     setAuth(newAuth);
                     persistAuth(newAuth);
+                    setSelectedZone(null);
+                    fetchZones(newAuth);
+                } else {
+                    const newAuth = { ...auth, _localToken: null };
+                    setAuth(newAuth);
+                    persistAuth(newAuth);
+                    setSelectedZone(null);
+                    fetchZones(newAuth);
                 }
             }
-            fetchZones(auth);
         } catch (err) { }
         setStorageToggleLoading(false);
+    };
+
+    const handleAddLocalToken = async () => {
+        if (!recoveryToken.trim()) return;
+        setRecoveryLoading(true);
+        setRecoveryError('');
+        try {
+            const res = await fetch('/api/verify-token', { headers: { 'X-Cloudflare-Token': recoveryToken } });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+                let idx = 0;
+                while (localTokens[`local_${idx}`]) idx++;
+                localTokens[`local_${idx}`] = recoveryToken;
+                localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
+                showToast(t('localTokenAdded'), 'success');
+                setRecoveryToken('');
+                fetchZones(auth);
+            } else {
+                let errMsg = data.message || t('loginFailed');
+                if (errMsg === 'Invalid token') errMsg = t('invalidToken');
+                if (errMsg === 'No token provided') errMsg = t('tokenRequired');
+                if (errMsg === 'Failed to verify token') errMsg = t('verifyFailed');
+                setRecoveryError(errMsg);
+            }
+        } catch (_e) {
+            setRecoveryError(t('errorOccurred'));
+        } finally {
+            setRecoveryLoading(false);
+        }
+    };
+
+    const handleRemoveLocalToken = (key) => {
+        if (!confirm(t('confirmRemoveLocalToken'))) return;
+        const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+        delete localTokens[key];
+        localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
+        showToast(t('localTokenRemoved'), 'success');
+        if (selectedZone && selectedZone._localKey === key) {
+            setSelectedZone(null);
+        }
+        fetchZones(auth);
+    };
+
+    const getLocalTokensList = () => {
+        const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+        return Object.entries(localTokens).map(([key, token]) => ({
+            key,
+            token,
+            masked: token.substring(0, 8) + '••••••••' + token.substring(token.length - 4)
+        }));
     };
 
     const fetchUsers = async () => {
@@ -1718,7 +1795,112 @@ const App = () => {
             )}
 
             <main style={{ paddingBottom: '3rem' }}>
-                {selectedZone ? (
+                {isLocalMode && auth.mode === 'server' ? (
+                    /* === LOCAL MODE UI === */
+                    selectedZone ? (
+                        <ZoneDetail
+                            zone={selectedZone}
+                            zones={zones}
+                            onSwitchZone={(z) => selectZone(z, auth)}
+                            onRefreshZones={() => fetchZones(auth)}
+                            zonesLoading={loading}
+                            auth={auth}
+                            onBack={() => { }}
+                            t={t}
+                            showToast={showToast}
+                            onAddAccount={null}
+                            onAddSession={() => setShowAddSession(true)}
+                        />
+                    ) : (
+                        <div className="container" style={{ marginTop: '2rem', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
+                            {loading ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', marginTop: '2rem' }}>
+                                    <RefreshCw className="spin" size={32} style={{ color: 'var(--primary)' }} />
+                                    <p style={{ color: 'var(--text-muted)' }}>{t('statusInitializing')}</p>
+                                </div>
+                            ) : (
+                                <div className="fade-in">
+                                    {/* Local mode header */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                                        <h3 style={{ fontSize: '1rem', margin: 0 }}>{t('localModeTitle')}</h3>
+                                        <span className="badge badge-orange" style={{ fontSize: '0.65rem', padding: '2px 8px' }}>{t('localBadge')}</span>
+                                    </div>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+                                        {t('localModeDesc')}
+                                    </p>
+
+                                    {/* Existing local tokens list */}
+                                    {(() => {
+                                        const tokens = getLocalTokensList();
+                                        return tokens.length > 0 ? (
+                                            <div className="glass-card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+                                                <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem', fontWeight: 600 }}>{t('localTokens')}</h4>
+                                                {tokens.map((item) => (
+                                                    <div key={item.key} style={{
+                                                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                                        padding: '0.5rem 0.6rem', borderRadius: '6px',
+                                                        marginBottom: '4px', background: 'var(--hover-bg)'
+                                                    }}>
+                                                        <Shield size={14} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                                                        <code style={{ fontSize: '0.7rem', color: 'var(--text)', flex: 1, fontFamily: 'monospace' }}>
+                                                            {item.masked}
+                                                        </code>
+                                                        <span className="badge badge-orange" style={{ fontSize: '0.6rem', padding: '1px 5px', flexShrink: 0 }}>{t('localBadge')}</span>
+                                                        <button
+                                                            onClick={() => handleRemoveLocalToken(item.key)}
+                                                            style={{
+                                                                border: 'none', background: 'transparent', cursor: 'pointer',
+                                                                padding: '2px', display: 'flex', color: 'var(--text-muted)', flexShrink: 0
+                                                            }}
+                                                            onMouseEnter={e => e.currentTarget.style.color = 'var(--error)'}
+                                                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                                                            title={t('removeLocalToken')}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : null;
+                                    })()}
+
+                                    {/* Add local token card */}
+                                    <div className="glass-card" style={{ padding: '1.25rem' }}>
+                                        <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>{t('addLocalToken')}</h4>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                                            {getLocalTokensList().length === 0 ? t('noLocalTokens') : t('noZonesEnterToken')}{' '}
+                                            <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>
+                                                dash.cloudflare.com/profile/api-tokens
+                                            </a>
+                                        </p>
+                                        <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+                                            <Shield size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                            <input
+                                                type="password"
+                                                placeholder={t('tokenPlaceholder')}
+                                                value={recoveryToken}
+                                                onChange={(e) => { setRecoveryToken(e.target.value); setRecoveryError(''); }}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddLocalToken(); }}
+                                                style={{ paddingLeft: '38px', width: '100%' }}
+                                            />
+                                        </div>
+                                        {recoveryError && <p style={{ color: 'var(--error)', fontSize: '0.75rem', marginBottom: '0.75rem' }}>{recoveryError}</p>}
+                                        <button
+                                            className="btn btn-primary"
+                                            onClick={handleAddLocalToken}
+                                            disabled={recoveryLoading || !recoveryToken.trim()}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center' }}
+                                        >
+                                            {recoveryLoading ? <RefreshCw className="spin" size={14} /> : <Plus size={14} />}
+                                            {t('addLocalToken')}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )
+                ) : selectedZone ? (
+                    /* === SERVER/CLIENT MODE WITH ZONE SELECTED === */
                     <ZoneDetail
                         zone={selectedZone}
                         zones={zones}
@@ -1733,6 +1915,7 @@ const App = () => {
                         onAddSession={() => setShowAddSession(true)}
                     />
                 ) : (
+                    /* === SERVER/CLIENT MODE NO ZONES === */
                     <div className="container" style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-muted)' }}>
                         {loading ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>

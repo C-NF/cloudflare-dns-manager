@@ -1,15 +1,11 @@
 export const getAuthHeaders = (auth, withType = false) => {
     if (!auth) return {};
 
-    // Check if the current account's token is stored locally
-    if (auth.mode === 'server') {
-        const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
-        const localKey = `${auth.username || 'admin'}_${auth.currentAccountIndex || 0}`;
-        if (localTokens[localKey]) {
-            const h = { 'X-Cloudflare-Token': localTokens[localKey] };
-            if (withType) h['Content-Type'] = 'application/json';
-            return h;
-        }
+    // If a local token is set on auth (local mode), use it directly
+    if (auth._localToken) {
+        const h = { 'X-Cloudflare-Token': auth._localToken };
+        if (withType) h['Content-Type'] = 'application/json';
+        return h;
     }
 
     const h = auth.mode === 'server'
