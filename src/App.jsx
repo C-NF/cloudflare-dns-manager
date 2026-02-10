@@ -498,68 +498,14 @@ const App = () => {
         return auth;
     };
 
-    const handleToggleStorage = async () => {
+    const handleToggleStorage = () => {
         if (auth.mode !== 'server') return;
-        setStorageToggleLoading(true);
-
-        try {
-            const freshAuth = await ensureFreshAuth();
-            const sessions = freshAuth.sessions || [];
-            if (!isLocalMode) {
-                // Server → Local: move ALL tokens from KV to localStorage
-                const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
-                for (const session of sessions) {
-                    const jwt = session.token;
-                    const headers = { 'Authorization': `Bearer ${jwt}` };
-                    // Get this user's accounts list
-                    const accRes = await fetch('/api/admin/settings', { headers });
-                    if (!accRes.ok) continue;
-                    const accData = await accRes.json();
-                    const accounts = accData.accounts || [];
-                    // Retrieve each token and save locally
-                    for (const acc of accounts) {
-                        const retrieveRes = await fetch(`/api/admin/settings?retrieve=${acc.id}`, { headers });
-                        if (!retrieveRes.ok) continue;
-                        const retrieveData = await retrieveRes.json();
-                        if (retrieveData.token) {
-                            const localKey = `${session.username || 'admin'}_${acc.id}`;
-                            localTokens[localKey] = retrieveData.token;
-                            // Delete from KV
-                            await fetch(`/api/admin/settings?index=${acc.id}`, { method: 'DELETE', headers });
-                        }
-                    }
-                }
-                localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
-                localStorage.setItem('global_local_mode', 'true');
-                setIsLocalMode(true);
-                setSelectedZone(null);
-                showToast(t('switchedToLocal'), 'success');
-                fetchZones(freshAuth);
-            } else {
-                // Local → Server: upload ALL local tokens to server
-                const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
-                const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}`, 'Content-Type': 'application/json' };
-                let nextId = (freshAuth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1) + 1;
-                for (const [key, token] of Object.entries(localTokens)) {
-                    const res = await fetch('/api/admin/settings', {
-                        method: 'POST', headers: adminHeaders,
-                        body: JSON.stringify({ token, accountIndex: nextId })
-                    });
-                    if (res.ok) {
-                        delete localTokens[key];
-                        nextId++;
-                    }
-                }
-                localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
-                localStorage.setItem('global_local_mode', 'false');
-                setIsLocalMode(false);
-                showToast(t('switchedToServer'), 'success');
-                const newAuth = await refreshAuthAccounts(freshAuth);
-                setSelectedZone(null);
-                fetchZones(newAuth);
-            }
-        } catch (err) { }
-        setStorageToggleLoading(false);
+        const newLocal = !isLocalMode;
+        localStorage.setItem('global_local_mode', newLocal ? 'true' : 'false');
+        setIsLocalMode(newLocal);
+        setSelectedZone(null);
+        showToast(newLocal ? t('switchedToLocal') : t('switchedToServer'), 'success');
+        fetchZones(auth);
     };
 
     const handleAddLocalToken = async () => {
