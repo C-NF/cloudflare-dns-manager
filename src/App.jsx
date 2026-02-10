@@ -469,12 +469,42 @@ const App = () => {
         } catch (err) { }
     };
 
+    const refreshAuthAccounts = async (authData) => {
+        const si = authData.activeSessionIndex || 0;
+        const adminHeaders = { 'Authorization': `Bearer ${authData.token}` };
+        const accRes = await fetch('/api/admin/settings', { headers: adminHeaders });
+        if (accRes.ok) {
+            const accData = await accRes.json();
+            const updatedAccounts = accData.accounts || [];
+            const newSessions = [...(authData.sessions || [])];
+            if (newSessions[si]) newSessions[si] = { ...newSessions[si], accounts: updatedAccounts };
+            const newAuth = { ...authData, _localToken: null, accounts: updatedAccounts, sessions: newSessions };
+            setAuth(newAuth);
+            persistAuth(newAuth);
+            return newAuth;
+        }
+        return authData;
+    };
+
+    const ensureFreshAuth = async () => {
+        if (auth.refreshToken) {
+            const updated = await tryRefreshToken(auth);
+            if (updated) {
+                setAuth(updated);
+                persistAuth(updated);
+                return updated;
+            }
+        }
+        return auth;
+    };
+
     const handleToggleStorage = async () => {
         if (auth.mode !== 'server') return;
         setStorageToggleLoading(true);
-        const sessions = auth.sessions || [];
 
         try {
+            const freshAuth = await ensureFreshAuth();
+            const sessions = freshAuth.sessions || [];
             if (!isLocalMode) {
                 // Server → Local: move ALL tokens from KV to localStorage
                 const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
@@ -504,51 +534,29 @@ const App = () => {
                 setIsLocalMode(true);
                 setSelectedZone(null);
                 showToast(t('switchedToLocal'), 'success');
-                fetchZones(auth);
+                fetchZones(freshAuth);
             } else {
-                // Local → Server: move ALL tokens from localStorage back to KV
+                // Local → Server: upload ALL local tokens to server
                 const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
-                for (const session of sessions) {
-                    const jwt = session.token;
-                    const headers = { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' };
-                    const prefix = `${session.username || 'admin'}_`;
-                    // Find all local tokens belonging to this session
-                    for (const [key, token] of Object.entries(localTokens)) {
-                        if (key.startsWith(prefix)) {
-                            const accId = parseInt(key.substring(prefix.length));
-                            const res = await fetch('/api/admin/settings', {
-                                method: 'POST', headers,
-                                body: JSON.stringify({ token, accountIndex: accId })
-                            });
-                            if (res.ok) delete localTokens[key];
-                        }
+                const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}`, 'Content-Type': 'application/json' };
+                let nextId = (freshAuth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1) + 1;
+                for (const [key, token] of Object.entries(localTokens)) {
+                    const res = await fetch('/api/admin/settings', {
+                        method: 'POST', headers: adminHeaders,
+                        body: JSON.stringify({ token, accountIndex: nextId })
+                    });
+                    if (res.ok) {
+                        delete localTokens[key];
+                        nextId++;
                     }
                 }
                 localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
                 localStorage.setItem('global_local_mode', 'false');
                 setIsLocalMode(false);
                 showToast(t('switchedToServer'), 'success');
-                // Clear local token from auth and refresh accounts from server
-                const si = auth.activeSessionIndex || 0;
-                const adminHeaders = { 'Authorization': `Bearer ${auth.token}` };
-                const accRes = await fetch('/api/admin/settings', { headers: adminHeaders });
-                if (accRes.ok) {
-                    const accData = await accRes.json();
-                    const updatedAccounts = accData.accounts || [];
-                    const newSessions = [...sessions];
-                    if (newSessions[si]) newSessions[si] = { ...newSessions[si], accounts: updatedAccounts };
-                    const newAuth = { ...auth, _localToken: null, accounts: updatedAccounts, sessions: newSessions };
-                    setAuth(newAuth);
-                    persistAuth(newAuth);
-                    setSelectedZone(null);
-                    fetchZones(newAuth);
-                } else {
-                    const newAuth = { ...auth, _localToken: null };
-                    setAuth(newAuth);
-                    persistAuth(newAuth);
-                    setSelectedZone(null);
-                    fetchZones(newAuth);
-                }
+                const newAuth = await refreshAuthAccounts(freshAuth);
+                setSelectedZone(null);
+                fetchZones(newAuth);
             }
         } catch (err) { }
         setStorageToggleLoading(false);
@@ -612,9 +620,10 @@ const App = () => {
         if (!token) return;
         setStorageToggleLoading(true);
         try {
-            const maxId = (auth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1);
+            const freshAuth = await ensureFreshAuth();
+            const maxId = (freshAuth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1);
             const nextIndex = maxId + 1;
-            const adminHeaders = { 'Authorization': `Bearer ${auth.token}`, 'Content-Type': 'application/json' };
+            const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}`, 'Content-Type': 'application/json' };
             const res = await fetch('/api/admin/settings', {
                 method: 'POST', headers: adminHeaders,
                 body: JSON.stringify({ token, accountIndex: nextIndex })
@@ -624,7 +633,7 @@ const App = () => {
                 localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
                 if (selectedZone && selectedZone._localKey === key) setSelectedZone(null);
                 showToast(t('uploadedToServer'), 'success');
-                const newAuth = await refreshAuthAccounts(auth);
+                const newAuth = await refreshAuthAccounts(freshAuth);
                 fetchZones(newAuth);
             } else {
                 showToast(t('tokenSaveFailed'), 'error');
@@ -635,35 +644,19 @@ const App = () => {
         setStorageToggleLoading(false);
     };
 
-    const refreshAuthAccounts = async (authData) => {
-        const si = authData.activeSessionIndex || 0;
-        const adminHeaders = { 'Authorization': `Bearer ${authData.token}` };
-        const accRes = await fetch('/api/admin/settings', { headers: adminHeaders });
-        if (accRes.ok) {
-            const accData = await accRes.json();
-            const updatedAccounts = accData.accounts || [];
-            const newSessions = [...(authData.sessions || [])];
-            if (newSessions[si]) newSessions[si] = { ...newSessions[si], accounts: updatedAccounts };
-            const newAuth = { ...authData, _localToken: null, accounts: updatedAccounts, sessions: newSessions };
-            setAuth(newAuth);
-            persistAuth(newAuth);
-            return newAuth;
-        }
-        return authData;
-    };
-
     const handleToggleZoneStorage = async (zoneObj) => {
         if (auth.mode !== 'server') return;
         setZoneStorageLoading(true);
         try {
+            const freshAuth = await ensureFreshAuth();
             if (zoneObj._localKey) {
                 // Local → Server: upload this token to server
                 const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
                 const token = localTokens[zoneObj._localKey];
                 if (token) {
-                    const maxId = (auth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1);
+                    const maxId = (freshAuth.accounts || []).reduce((max, a) => Math.max(max, a.id), -1);
                     const nextIndex = maxId + 1;
-                    const adminHeaders = { 'Authorization': `Bearer ${auth.token}`, 'Content-Type': 'application/json' };
+                    const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}`, 'Content-Type': 'application/json' };
                     const res = await fetch('/api/admin/settings', {
                         method: 'POST', headers: adminHeaders,
                         body: JSON.stringify({ token, accountIndex: nextIndex })
@@ -672,15 +665,17 @@ const App = () => {
                         delete localTokens[zoneObj._localKey];
                         localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
                         showToast(t('uploadedToServer'), 'success');
-                        const newAuth = await refreshAuthAccounts(auth);
+                        const newAuth = await refreshAuthAccounts(freshAuth);
                         setSelectedZone(null);
                         fetchZones(newAuth);
+                    } else {
+                        showToast(t('tokenSaveFailed'), 'error');
                     }
                 }
             } else {
                 // Server → Local: retrieve token from server, save locally, delete from server
                 const idx = zoneObj._accountIdx || 0;
-                const adminHeaders = { 'Authorization': `Bearer ${auth.token}` };
+                const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}` };
                 const res = await fetch(`/api/admin/settings?retrieve=${idx}`, { headers: adminHeaders });
                 const data = await res.json();
                 if (res.ok && data.token) {
@@ -691,9 +686,11 @@ const App = () => {
                     localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
                     await fetch(`/api/admin/settings?index=${idx}`, { method: 'DELETE', headers: adminHeaders });
                     showToast(t('switchedToLocal'), 'success');
-                    const newAuth = await refreshAuthAccounts(auth);
+                    const newAuth = await refreshAuthAccounts(freshAuth);
                     setSelectedZone(null);
                     fetchZones(newAuth);
+                } else {
+                    showToast(t('tokenSaveFailed'), 'error');
                 }
             }
         } catch (_e) {

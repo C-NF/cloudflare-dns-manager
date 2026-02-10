@@ -513,58 +513,42 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                                     {t('refresh')}
                                 </button>
                             </div>
-                            {(() => {
-                                // Group zones by owner
-                                const owners = [];
-                                const grouped = {};
-                                zones.forEach(z => {
-                                    const owner = z._owner || auth.username || 'default';
-                                    if (!grouped[owner]) { grouped[owner] = []; owners.push(owner); }
-                                    grouped[owner].push(z);
-                                });
-                                const multiOwner = owners.length > 1;
-                                return owners.map((owner, oi) => (
-                                    <div key={owner}>
-                                        {multiOwner && (
-                                            <div style={{ padding: '0.4rem 0.75rem', fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: oi > 0 ? '0.5rem' : 0, borderTop: oi > 0 ? '1px solid var(--border)' : 'none', paddingTop: oi > 0 ? '0.5rem' : '0.4rem' }}>
-                                                <User size={10} style={{ marginRight: '4px', verticalAlign: 'middle' }} />{owner}
-                                            </div>
-                                        )}
-                                        {grouped[owner].map(z => (
-                                            <div
-                                                key={`${z._owner}_${z.id}`}
-                                                onClick={() => {
-                                                    onSwitchZone(z);
-                                                    setShowZoneSelector(false);
-                                                }}
-                                                style={{
-                                                    padding: '0.5rem 0.75rem',
-                                                    cursor: 'pointer',
-                                                    borderRadius: '6px',
-                                                    background: z.id === zone.id && z._owner === zone._owner ? '#fff7ed' : 'transparent',
-                                                    color: z.id === zone.id && z._owner === zone._owner ? 'var(--primary)' : 'var(--text)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    gap: '8px',
-                                                    marginBottom: '2px',
-                                                    transition: 'all 0.1s'
-                                                }}
-                                                onMouseEnter={e => { if (!(z.id === zone.id && z._owner === zone._owner)) e.currentTarget.style.background = '#f9fafb'; }}
-                                                onMouseLeave={e => { if (!(z.id === zone.id && z._owner === zone._owner)) e.currentTarget.style.background = 'transparent'; }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <span style={{ fontWeight: z.id === zone.id && z._owner === zone._owner ? 600 : 400, fontSize: '0.875rem' }}>{z.name}</span>
-                                                    <span className={`badge ${z.status === 'active' ? 'badge-green' : 'badge-orange'}`} style={{ fontSize: '0.6rem', padding: '1px 4px' }}>
-                                                        {t('status' + z.status.charAt(0).toUpperCase() + z.status.slice(1))}
-                                                    </span>
-                                                </div>
-                                                {z.id === zone.id && z._owner === zone._owner && <CheckCircle size={14} />}
-                                            </div>
-                                        ))}
+                            {zones.map(z => {
+                                const isActive = z.id === zone.id && z._owner === zone._owner;
+                                return (
+                                    <div
+                                        key={`${z._owner}_${z.id}`}
+                                        onClick={() => {
+                                            onSwitchZone(z);
+                                            setShowZoneSelector(false);
+                                        }}
+                                        style={{
+                                            padding: '0.5rem 0.75rem',
+                                            cursor: 'pointer',
+                                            borderRadius: '6px',
+                                            background: isActive ? '#fff7ed' : 'transparent',
+                                            color: isActive ? 'var(--primary)' : 'var(--text)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: '8px',
+                                            marginBottom: '2px',
+                                            transition: 'all 0.1s'
+                                        }}
+                                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#f9fafb'; }}
+                                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontWeight: isActive ? 600 : 400, fontSize: '0.875rem' }}>{z.name}</span>
+                                            <span className={`badge ${z.status === 'active' ? 'badge-green' : 'badge-orange'}`} style={{ fontSize: '0.6rem', padding: '1px 4px' }}>
+                                                {t('status' + z.status.charAt(0).toUpperCase() + z.status.slice(1))}
+                                            </span>
+                                            {z._localKey && <span className="badge badge-orange" style={{ fontSize: '0.55rem', padding: '1px 4px' }}>{t('localBadge')}</span>}
+                                        </div>
+                                        {isActive && <CheckCircle size={14} />}
                                     </div>
-                                ));
-                            })()}
+                                );
+                            })}
                             <div style={{ height: '1px', background: 'var(--border)', margin: '0.5rem 0' }}></div>
                             {onAddAccount && (
                                 <div
