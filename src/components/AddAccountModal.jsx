@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, Plus, RefreshCw, X } from 'lucide-react';
 
 const AddAccountModal = ({ show, onClose, auth, t, showToast, onAccountAdded }) => {
@@ -6,6 +6,13 @@ const AddAccountModal = ({ show, onClose, auth, t, showToast, onAccountAdded }) 
     const [newAccountName, setNewAccountName] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
 
     if (!show) return null;
 

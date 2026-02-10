@@ -1,4 +1,5 @@
 import { logAudit } from './_audit.js';
+import { validateDnsRecord } from './_validate.js';
 
 export async function onRequestPost(context) {
     const { cfToken } = context.data;
@@ -35,6 +36,13 @@ export async function onRequestPost(context) {
         });
     }
 
+    // Limit zones array size to prevent abuse
+    if (Array.isArray(zones) && zones.length > 100) {
+        return new Response(JSON.stringify({ error: 'zones array must not exceed 100 items.' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
     // Validate record
     if (!record || typeof record !== 'object') {
         return new Response(JSON.stringify({ error: 'record object is required.' }), {
@@ -44,6 +52,15 @@ export async function onRequestPost(context) {
 
     if (operation === 'create' && (!record.type || !record.name || !record.content)) {
         return new Response(JSON.stringify({ error: "record must include type, name, and content for 'create' operation." }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Validate DNS record fields
+    const requireAll = operation === 'create';
+    const recordErrors = validateDnsRecord(record, requireAll);
+    if (recordErrors.length > 0) {
+        return new Response(JSON.stringify({ error: 'Invalid record fields.', details: recordErrors }), {
             status: 400, headers: { 'Content-Type': 'application/json' }
         });
     }

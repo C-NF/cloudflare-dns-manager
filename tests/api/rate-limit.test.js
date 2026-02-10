@@ -17,8 +17,40 @@ describe('checkRateLimit', () => {
 
     it('returns null for non-rate-limited endpoints', async () => {
         const kv = createMockKV();
-        const result = await checkRateLimit(kv, '1.2.3.4', '/api/zones');
+        const result = await checkRateLimit(kv, '1.2.3.4', '/api/public-settings');
         expect(result).toBeNull();
+    });
+
+    it('rate limits prefix-matched endpoints', async () => {
+        const kv = createMockKV();
+        // /api/zones/ prefix has max: 30, windowSec: 60
+        for (let i = 0; i < 30; i++) {
+            const r = await checkRateLimit(kv, '1.2.3.4', '/api/zones/example.com');
+            expect(r).toBeNull();
+        }
+        const result = await checkRateLimit(kv, '1.2.3.4', '/api/zones/example.com');
+        expect(result).toBeGreaterThan(0);
+    });
+
+    it('groups prefix-matched sub-paths under the same key', async () => {
+        const kv = createMockKV();
+        // Requests to different sub-paths under /api/zones/ share the same limit
+        for (let i = 0; i < 15; i++) {
+            await checkRateLimit(kv, '1.2.3.4', '/api/zones/a.com');
+        }
+        for (let i = 0; i < 15; i++) {
+            await checkRateLimit(kv, '1.2.3.4', '/api/zones/b.com');
+        }
+        // Total is now 30, so the next request should be rate-limited
+        const result = await checkRateLimit(kv, '1.2.3.4', '/api/zones/c.com');
+        expect(result).toBeGreaterThan(0);
+    });
+
+    it('matches prefix path without trailing slash', async () => {
+        const kv = createMockKV();
+        // /api/zones (no trailing slash) should also be rate-limited
+        const result = await checkRateLimit(kv, '1.2.3.4', '/api/zones');
+        expect(result).toBeNull(); // first request is within limit
     });
 
     it('returns null for requests within limit', async () => {

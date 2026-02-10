@@ -29,6 +29,13 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
         }
     }, [show]);
 
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
+
     const fetchUsers = async () => {
         setUserListLoading(true);
         try {
@@ -37,7 +44,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 const data = await res.json();
                 setUserList(data.users || []);
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to fetch users:', err); showToast(t('errorOccurred'), 'error'); }
         setUserListLoading(false);
     };
 
@@ -50,7 +57,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setAppSettings(settings);
                 if (settings.webhookUrl !== undefined) setWebhookUrl(settings.webhookUrl);
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to fetch app settings:', err); }
     };
 
     const handleToggleOpenRegistration = async () => {
@@ -66,7 +73,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setAppSettings(data.settings);
                 showToast(t('settingsSaved'), 'success');
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to toggle open registration:', err); showToast(t('errorOccurred'), 'error'); }
         setAppSettingsLoading(false);
     };
 
@@ -115,7 +122,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setEditingUser(null);
                 fetchUsers();
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to edit user:', err); showToast(t('errorOccurred'), 'error'); }
         setEditUserLoading(false);
     };
 
@@ -130,7 +137,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 showToast(t('userDeleted'), 'success');
                 fetchUsers();
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to delete user:', err); showToast(t('errorOccurred'), 'error'); }
     };
 
     const fetchAuditLog = async (page = 1) => {
@@ -145,7 +152,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setAuditLogPage(page);
                 setAuditLogHasMore(data.hasMore || false);
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to fetch audit log:', err); }
         setAuditLogLoading(false);
     };
 
@@ -162,7 +169,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setAuditLogPage(1);
                 setAuditLogHasMore(false);
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to clear audit log:', err); showToast(t('errorOccurred'), 'error'); }
     };
 
     const handleSaveWebhook = async () => {
@@ -177,7 +184,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                 setAppSettings(data.settings);
                 showToast(t('webhookSaved'), 'success');
             }
-        } catch (_e) { }
+        } catch (e) { console.error('Failed to save webhook:', e); showToast(t('errorOccurred'), 'error'); }
     };
 
     if (!show) return null;

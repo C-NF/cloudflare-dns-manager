@@ -36,6 +36,7 @@ const App = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState(null);
     const [searchLoading, setSearchLoading] = useState(false);
+    const [searchResultsVisible, setSearchResultsVisible] = useState(50);
     const searchRef = useRef(null);
 
     // Modal visibility toggles
@@ -154,8 +155,9 @@ const App = () => {
                             const data = await res.json();
                             return (data.result || []).map(z => ({ ...z, _localKey: key, _owner: key }));
                         }
+                        console.error(`Failed to fetch zones for local token ${key}: HTTP ${res.status}`);
                         return [];
-                    }).catch(() => [])
+                    }).catch((err) => { console.error(`Failed to fetch zones for local token ${key}:`, err); return []; })
                 );
             }
         } else {
@@ -173,8 +175,9 @@ const App = () => {
                                 const data = await res.json();
                                 return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username }));
                             }
+                            console.error(`Failed to fetch zones for session ${session.username} (account 0): HTTP ${res.status}`);
                             return [];
-                        }).catch(() => [])
+                        }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account 0):`, err); return []; })
                     );
                     continue;
                 }
@@ -187,8 +190,9 @@ const App = () => {
                                 const data = await res.json();
                                 return (data.result || []).map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username }));
                             }
+                            console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}): HTTP ${res.status}`);
                             return [];
-                        }).catch(() => [])
+                        }).catch((err) => { console.error(`Failed to fetch zones for session ${session.username} (account ${acc.id}):`, err); return []; })
                     );
                 }
             }
@@ -257,7 +261,7 @@ const App = () => {
                     return updated;
                 }
             }
-        } catch (_e) { }
+        } catch (err) { console.error('Token refresh failed:', err); }
         return null;
     };
 
@@ -283,7 +287,8 @@ const App = () => {
                     setAuth(credentials);
                     fetchZones(credentials);
                 }
-            } catch (_e) {
+            } catch (err) {
+                console.error('Failed to parse saved auth session:', err);
                 localStorage.removeItem('auth_session');
                 sessionStorage.removeItem('auth_session');
             }
@@ -393,7 +398,7 @@ const App = () => {
                     fetchZones(newAuth);
                 }
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to remove account:', err); showToast(t('errorOccurred'), 'error'); }
     };
 
     const refreshAuthAccounts = async (authData) => {
@@ -458,7 +463,8 @@ const App = () => {
                 if (errMsg === 'Failed to verify token') errMsg = t('verifyFailed');
                 setRecoveryError(errMsg);
             }
-        } catch (_e) {
+        } catch (err) {
+            console.error('Failed to add local token:', err);
             setRecoveryError(t('errorOccurred'));
         } finally {
             setRecoveryLoading(false);
@@ -511,7 +517,8 @@ const App = () => {
             } else {
                 showToast(t('tokenSaveFailed'), 'error');
             }
-        } catch (_e) {
+        } catch (err) {
+            console.error('Failed to upload local token to server:', err);
             showToast(t('tokenSaveFailed'), 'error');
         }
         setStorageToggleLoading(false);
@@ -566,7 +573,8 @@ const App = () => {
                     showToast(t('tokenSaveFailed'), 'error');
                 }
             }
-        } catch (_e) {
+        } catch (err) {
+            console.error('Failed to toggle zone storage:', err);
             showToast(t('tokenSaveFailed'), 'error');
         }
         setZoneStorageLoading(false);
@@ -598,6 +606,7 @@ const App = () => {
         if (!searchQuery || searchQuery.trim().length < 2) return;
         setSearchLoading(true);
         setSearchResults(null);
+        setSearchResultsVisible(50);
         try {
             const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery.trim())}`, {
                 headers: getAuthHeaders(auth)
@@ -609,6 +618,7 @@ const App = () => {
                 setSearchResults([]);
             }
         } catch (err) {
+            console.error('Search request failed:', err);
             setSearchResults([]);
         }
         setSearchLoading(false);
@@ -751,7 +761,7 @@ const App = () => {
                                             {t('searchNoResults')}
                                         </p>
                                     )}
-                                    {searchResults.map((result, idx) => (
+                                    {searchResults.slice(0, searchResultsVisible).map((result, idx) => (
                                         <div
                                             key={idx}
                                             onClick={() => {
@@ -778,6 +788,21 @@ const App = () => {
                                             </div>
                                         </div>
                                     ))}
+                                    {searchResults.length > searchResultsVisible && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setSearchResultsVisible(prev => prev + 50); }}
+                                            style={{
+                                                width: '100%', padding: '0.4rem', border: 'none',
+                                                background: 'var(--hover-bg)', borderRadius: '6px',
+                                                cursor: 'pointer', fontSize: '0.7rem', color: 'var(--primary)',
+                                                fontWeight: 600, marginTop: '0.25rem', transition: 'background 0.15s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--select-active-bg)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--hover-bg)'}
+                                        >
+                                            {t('showMore') || 'Show more'} ({searchResults.length - searchResultsVisible} remaining)
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>

@@ -37,17 +37,8 @@ const Login = ({ onLogin, t, lang, onLangChange }) => {
     useEffect(() => {
         fetch('/api/public-settings').then(r => r.json()).then(data => {
             setOpenRegistration(!!data.openRegistration);
-        }).catch(() => {});
+        }).catch((err) => { console.error('Failed to fetch public settings:', err); });
     }, []);
-
-    const hashPassword = async (pwd) => {
-        const msgUint8 = new TextEncoder().encode(pwd);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    };
-
-    const isPasswordStrong = (pwd) => pwd.length >= 8 && /[a-zA-Z]/.test(pwd) && /[0-9]/.test(pwd);
 
     const supportsPasskey = typeof window !== 'undefined' && !!window.PublicKeyCredential;
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Key, RefreshCw, Save, X } from 'lucide-react';
 import { hashPassword } from '../utils/auth.ts';
 
@@ -8,6 +8,13 @@ const ChangePasswordModal = ({ show, onClose, auth, t, showToast }) => {
     const [confirm, setConfirm] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
 
     if (!show) return null;
 

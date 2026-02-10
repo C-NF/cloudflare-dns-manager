@@ -45,7 +45,7 @@ export async function onRequestGet(context) {
                         zoneId: zone.id
                     }));
                 }
-            } catch (e) { }
+            } catch (e) { console.error(`Failed to search DNS records for zone ${zone.name}:`, e); }
             return [];
         });
 

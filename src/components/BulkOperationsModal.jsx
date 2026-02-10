@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layers, Globe, CheckCircle, AlertCircle, RefreshCw, X } from 'lucide-react';
 import { getAuthHeaders } from '../utils/auth.ts';
 
@@ -11,6 +11,13 @@ const BulkOperationsModal = ({ show, onClose, auth, t, showToast, zones }) => {
     const [recordContent, setRecordContent] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState(null);
+
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
 
     if (!show) return null;
 
@@ -48,7 +55,8 @@ const BulkOperationsModal = ({ show, onClose, auth, t, showToast, zones }) => {
             } else {
                 showToast(data.error || 'Bulk operation failed', 'error');
             }
-        } catch (_e) {
+        } catch (err) {
+            console.error('Bulk operation failed:', err);
             showToast('Bulk operation failed', 'error');
         }
         setLoading(false);

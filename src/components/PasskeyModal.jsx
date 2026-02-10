@@ -11,6 +11,13 @@ const PasskeyModal = ({ show, onClose, auth, t, showToast }) => {
         if (show && auth?.token) fetchPasskeys();
     }, [show]);
 
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
+
     const fetchPasskeys = async () => {
         try {
             const res = await fetch('/api/passkey/credentials', {
@@ -18,7 +25,7 @@ const PasskeyModal = ({ show, onClose, auth, t, showToast }) => {
             });
             const data = await res.json();
             if (res.ok) setPasskeys(data.credentials || []);
-        } catch (err) { }
+        } catch (err) { console.error('Failed to fetch passkeys:', err); }
     };
 
     const handleRegister = async () => {
@@ -70,7 +77,7 @@ const PasskeyModal = ({ show, onClose, auth, t, showToast }) => {
                 showToast(t('passkeyDeleted'), 'success');
                 fetchPasskeys();
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to delete passkey:', err); showToast(t('errorOccurred'), 'error'); }
     };
 
     if (!show) return null;

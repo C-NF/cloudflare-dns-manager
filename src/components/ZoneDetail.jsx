@@ -102,7 +102,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             const res = await fetch(`/api/zones/${zone.id}/dns_records`, { headers: getHeaders() });
             const data = await res.json();
             setRecords((data.result || []).sort((a, b) => new Date(b.modified_on) - new Date(a.modified_on)));
-        } catch (e) { }
+        } catch (e) { console.error('Failed to fetch DNS records:', e); }
         setLoading(false);
     };
 
@@ -116,7 +116,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                 const data = await res.json();
                 setSnapshots(data.snapshots || []);
             }
-        } catch (err) { }
+        } catch (err) { console.error('Failed to fetch snapshots:', err); }
         setSnapshotsLoading(false);
     };
 
@@ -196,7 +196,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                 fetchFallback();
                 showToast(t('updateSuccess'));
             } else {
-                const data = await res.json().catch(() => ({}));
+                const data = await res.json().catch((err) => { console.error('Failed to parse response JSON:', err); return {}; });
                 showToast(data.message || t('errorOccurred'), 'error');
             }
         } catch (e) {
@@ -250,7 +250,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             fetchDNS();
             showToast(editingRecord ? t('updateSuccess') : t('addSuccess'));
         } else {
-            const data = await res.json().catch(() => ({}));
+            const data = await res.json().catch((err) => { console.error('Failed to parse response JSON:', err); return {}; });
             const isFallbackError = data.errors?.some(e => e.code === 1040);
             showToast(isFallbackError ? t('fallbackError') : (data.errors?.[0]?.message || data.message || t('errorOccurred')), 'error');
         }
@@ -296,7 +296,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             fetchHostnames();
             showToast(editingSaaS ? t('updateSuccess') : t('addSuccess'));
         } else {
-            const data = await res.json().catch(() => ({}));
+            const data = await res.json().catch((err) => { console.error('Failed to parse response JSON:', err); return {}; });
             showToast(data.message || t('errorOccurred'), 'error');
         }
     };
@@ -311,7 +311,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                 fetchDNS();
                 showToast(t('deleteSuccess'));
             } else {
-                const data = await res.json().catch(() => ({}));
+                const data = await res.json().catch((err) => { console.error('Failed to parse response JSON:', err); return {}; });
                 showToast(data.message || t('errorOccurred'), 'error');
             }
         });
@@ -327,7 +327,7 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
                 fetchHostnames();
                 showToast(t('deleteSuccess'));
             } else {
-                const data = await res.json().catch(() => ({}));
+                const data = await res.json().catch((err) => { console.error('Failed to parse response JSON:', err); return {}; });
                 showToast(data.message || t('errorOccurred'), 'error');
             }
         });

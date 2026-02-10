@@ -1,15 +1,10 @@
 import { SignJWT } from 'jose';
-import { hashPassword, verifyPassword, isLegacyHash } from './_crypto.js';
+import { sha256, hashPassword, verifyPassword, isLegacyHash } from './_crypto.js';
 import { logAudit } from './_audit.js';
 import { fireWebhook } from './_webhook.js';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_SEC = 900; // 15 minutes
-
-async function sha256(str) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
 
 async function checkLockout(kv, username) {
     if (!kv) return null;

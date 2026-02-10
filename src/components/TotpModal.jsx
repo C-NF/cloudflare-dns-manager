@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, RefreshCw, Copy, X } from 'lucide-react';
 
 const TotpModal = ({ show, onClose, auth, t, showToast }) => {
@@ -9,6 +9,13 @@ const TotpModal = ({ show, onClose, auth, t, showToast }) => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [enabled, setEnabled] = useState(false);
+
+    useEffect(() => {
+        if (!show) return;
+        const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [show, onClose]);
 
     if (!show) return null;
 
@@ -29,7 +36,8 @@ const TotpModal = ({ show, onClose, auth, t, showToast }) => {
                 setError(data.error || 'Failed to generate TOTP secret');
                 setSetupStep(null);
             }
-        } catch (_e) {
+        } catch (e) {
+            console.error('Failed to start TOTP setup:', e);
             setError('Failed to start TOTP setup');
             setSetupStep(null);
         }
@@ -54,7 +62,8 @@ const TotpModal = ({ show, onClose, auth, t, showToast }) => {
             } else {
                 setError(data.error || t('totpInvalid'));
             }
-        } catch (_e) {
+        } catch (e) {
+            console.error('Failed to verify TOTP:', e);
             setError(t('errorOccurred'));
         }
         setLoading(false);
@@ -79,7 +88,8 @@ const TotpModal = ({ show, onClose, auth, t, showToast }) => {
             } else {
                 setError(data.error || t('totpInvalid'));
             }
-        } catch (_e) {
+        } catch (e) {
+            console.error('Failed to disable TOTP:', e);
             setError(t('errorOccurred'));
         }
         setLoading(false);

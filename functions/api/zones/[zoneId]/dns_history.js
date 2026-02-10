@@ -32,33 +32,40 @@ export async function onRequestGet(context) {
         });
     }
 
-    // List all snapshots (metadata only)
-    const list = await kv.list({ prefix: `DNS_SNAPSHOT:${zoneId}:` });
-    const snapshots = [];
+    // Parse pagination params
+    const page = Math.max(1, parseInt(url.searchParams.get('page')) || 1);
+    const per_page = Math.min(100, Math.max(1, parseInt(url.searchParams.get('per_page')) || 10));
 
-    for (const key of list.keys) {
-        // Extract timestamp from key: DNS_SNAPSHOT:{zoneId}:{timestamp}
-        const parts = key.name.split(':');
-        const timestamp = parts.slice(2).join(':'); // rejoin in case ISO timestamp contains colons
+    // Try to read from the snapshot list index first
+    const listKey = `DNS_SNAPSHOTS:${zoneId}`;
+    let snapshots = [];
+    const rawList = await kv.get(listKey);
 
-        // We need to read metadata from the snapshot value
-        const raw = await kv.get(key.name);
-        if (raw) {
-            try {
-                const data = JSON.parse(raw);
-                snapshots.push({
-                    key: key.name,
-                    timestamp: data.timestamp,
-                    username: data.username,
-                    action: data.action
-                });
-            } catch (e) {
-                snapshots.push({
-                    key: key.name,
-                    timestamp,
-                    username: 'unknown',
-                    action: 'unknown'
-                });
+    if (rawList) {
+        try {
+            snapshots = JSON.parse(rawList);
+        } catch (e) { snapshots = []; }
+    }
+
+    // Fallback: if no index exists, build from KV prefix scan
+    if (snapshots.length === 0) {
+        const list = await kv.list({ prefix: `DNS_SNAPSHOT:${zoneId}:` });
+        for (const key of list.keys) {
+            const parts = key.name.split(':');
+            const timestamp = parts.slice(2).join(':');
+            const raw = await kv.get(key.name);
+            if (raw) {
+                try {
+                    const data = JSON.parse(raw);
+                    snapshots.push({
+                        key: key.name,
+                        timestamp: data.timestamp,
+                        username: data.username,
+                        action: data.action
+                    });
+                } catch (e) {
+                    snapshots.push({ key: key.name, timestamp, username: 'unknown', action: 'unknown' });
+                }
             }
         }
     }
@@ -66,7 +73,12 @@ export async function onRequestGet(context) {
     // Sort by timestamp descending (newest first)
     snapshots.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
-    return new Response(JSON.stringify({ snapshots }), {
+    const total = snapshots.length;
+    const total_pages = Math.max(1, Math.ceil(total / per_page));
+    const start = (page - 1) * per_page;
+    const paginated = snapshots.slice(start, start + per_page);
+
+    return new Response(JSON.stringify({ snapshots: paginated, total, page, per_page, total_pages }), {
         headers: { 'Content-Type': 'application/json' }
     });
 }
