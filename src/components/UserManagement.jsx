@@ -14,6 +14,8 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
     const [editingUser, setEditingUser] = useState(null);
     const [editUserRole, setEditUserRole] = useState('user');
     const [editUserLoading, setEditUserLoading] = useState(false);
+    const [editAllowedZones, setEditAllowedZones] = useState([]);
+    const [zoneInput, setZoneInput] = useState('');
     const [auditLog, setAuditLog] = useState([]);
     const [auditLogLoading, setAuditLogLoading] = useState(false);
     const [auditLogPage, setAuditLogPage] = useState(1);
@@ -108,7 +110,7 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
         setEditUserLoading(true);
         setCreatedSetupToken('');
         try {
-            const body = { username: uname, role: editUserRole };
+            const body = { username: uname, role: editUserRole, allowedZones: editAllowedZones };
             if (resetSetupToken) body.resetSetupToken = true;
             const res = await fetch('/api/admin/users', {
                 method: 'PUT',
@@ -384,6 +386,63 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                                                             <option value="admin">{t('roleAdmin')}</option>
                                                         </select>
                                                     </div>
+                                                    {/* Zone Permissions */}
+                                                    <div style={{ padding: '0.5rem', background: 'var(--hover-bg)', borderRadius: '6px' }}>
+                                                        <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t('allowedZones')}</div>
+                                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>{t('allowedZonesDesc')}</div>
+                                                        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                                                            <input
+                                                                type="text"
+                                                                value={zoneInput}
+                                                                onChange={(e) => setZoneInput(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter' || e.key === ',') {
+                                                                        e.preventDefault();
+                                                                        const val = zoneInput.trim().toLowerCase().replace(/,$/, '');
+                                                                        if (val && !editAllowedZones.includes(val)) {
+                                                                            setEditAllowedZones([...editAllowedZones, val]);
+                                                                        }
+                                                                        setZoneInput('');
+                                                                    }
+                                                                }}
+                                                                placeholder={t('allowedZonesPlaceholder')}
+                                                                style={{ flex: 1, fontSize: '0.75rem', padding: '3px 6px' }}
+                                                            />
+                                                            <button
+                                                                className="btn btn-outline"
+                                                                style={{ padding: '3px 8px', fontSize: '0.65rem' }}
+                                                                onClick={() => {
+                                                                    const val = zoneInput.trim().toLowerCase().replace(/,$/, '');
+                                                                    if (val && !editAllowedZones.includes(val)) {
+                                                                        setEditAllowedZones([...editAllowedZones, val]);
+                                                                    }
+                                                                    setZoneInput('');
+                                                                }}
+                                                            >
+                                                                {t('allowedZonesAdd')}
+                                                            </button>
+                                                        </div>
+                                                        {editAllowedZones.length === 0 ? (
+                                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                                                {t('allowedZonesAll')}
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                                                {editAllowedZones.map(zone => (
+                                                                    <span key={zone} className="badge badge-blue" style={{ fontSize: '0.65rem', padding: '2px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                                                        {zone}
+                                                                        <button
+                                                                            onClick={() => setEditAllowedZones(editAllowedZones.filter(z => z !== zone))}
+                                                                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0', display: 'flex', lineHeight: 1 }}
+                                                                            title={t('allowedZonesRemove')}
+                                                                        >
+                                                                            <X size={10} />
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     <div style={{ display: 'flex', gap: '0.25rem' }}>
                                                         <button className="btn btn-primary" style={{ padding: '3px 8px', fontSize: '0.7rem' }}
                                                             onClick={() => handleEditUser(u.username)} disabled={editUserLoading}>
@@ -413,10 +472,16 @@ const UserManagement = ({ show, onClose, auth, t, showToast }) => {
                                                 <span className={`badge ${u.role === 'admin' ? 'badge-orange' : 'badge-green'}`} style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
                                                     {u.role === 'admin' ? t('roleAdmin') : t('roleUser')}
                                                 </span>
+                                                {u.username !== 'admin' && u.role !== 'admin' && Array.isArray(u.allowedZones) && u.allowedZones.length > 0 && (
+                                                    <span className="badge badge-blue" style={{ fontSize: '0.6rem', padding: '1px 5px' }}
+                                                        title={u.allowedZones.join(', ')}>
+                                                        {u.allowedZones.length} zone{u.allowedZones.length !== 1 ? 's' : ''}
+                                                    </span>
+                                                )}
                                                 {u.username !== 'admin' && (
                                                     <div style={{ display: 'flex', gap: '0.25rem' }}>
                                                         <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', color: 'var(--text-muted)' }}
-                                                            onClick={() => { setEditingUser(u.username); setEditUserRole(u.role); }}
+                                                            onClick={() => { setEditingUser(u.username); setEditUserRole(u.role); setEditAllowedZones(Array.isArray(u.allowedZones) ? [...u.allowedZones] : []); setZoneInput(''); }}
                                                             onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
                                                             onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
                                                             aria-label={`Edit user ${u.username}`}>

@@ -1,3 +1,5 @@
+import { getUserAllowedZones, isZoneAllowed } from './_permissions.js';
+
 // GET: Search DNS records across all zones
 export async function onRequestGet(context) {
     const { request } = context;
@@ -26,7 +28,17 @@ export async function onRequestGet(context) {
             });
         }
 
-        const zones = zonesData.result || [];
+        let zones = zonesData.result || [];
+
+        // Filter zones based on user permissions
+        const user = context.data.user;
+        if (user && user.role !== 'admin') {
+            const allowedZones = await getUserAllowedZones(context.env.CF_DNS_KV, user.username);
+            if (allowedZones.length > 0) {
+                zones = zones.filter(zone => isZoneAllowed(allowedZones, zone.name));
+            }
+        }
+
         const results = [];
 
         // Search DNS records in all zones in parallel

@@ -34,7 +34,8 @@ export async function onRequestGet(context) {
                 role: data.role,
                 status: data.status || 'active',
                 createdAt: data.createdAt,
-                hasSetupToken: !!data.setupToken
+                hasSetupToken: !!data.setupToken,
+                allowedZones: Array.isArray(data.allowedZones) ? data.allowedZones : []
             });
         }
     }
@@ -57,7 +58,7 @@ export async function onRequestPost(context) {
     }
 
     const body = await context.request.json();
-    const { username, role } = body;
+    const { username, role, allowedZones } = body;
 
     if (!username || !username.trim()) {
         return new Response(JSON.stringify({ error: 'Username is required.' }), {
@@ -91,12 +92,16 @@ export async function onRequestPost(context) {
     }
 
     const setupToken = generateSetupToken();
+    const parsedAllowedZones = Array.isArray(allowedZones)
+        ? allowedZones.filter(z => typeof z === 'string' && z.trim()).map(z => z.trim().toLowerCase())
+        : [];
     const userData = {
         username: cleanUsername,
         passwordHash: null,
         setupToken,
         status: 'pending',
         role: role === 'admin' ? 'admin' : 'user',
+        allowedZones: parsedAllowedZones,
         createdAt: new Date().toISOString()
     };
 
@@ -136,7 +141,7 @@ export async function onRequestPut(context) {
     }
 
     const body = await context.request.json();
-    const { username, role, resetSetupToken } = body;
+    const { username, role, resetSetupToken, allowedZones } = body;
 
     if (!username || username === 'admin') {
         return new Response(JSON.stringify({ error: 'Cannot modify the admin user.' }), {
@@ -157,6 +162,13 @@ export async function onRequestPut(context) {
 
     if (role) {
         userData.role = role === 'admin' ? 'admin' : 'user';
+    }
+
+    // Update allowed zones if provided
+    if (allowedZones !== undefined) {
+        userData.allowedZones = Array.isArray(allowedZones)
+            ? allowedZones.filter(z => typeof z === 'string' && z.trim()).map(z => z.trim().toLowerCase())
+            : [];
     }
 
     // Admin can regenerate setup token (resets user to pending)

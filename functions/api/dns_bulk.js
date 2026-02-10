@@ -1,5 +1,6 @@
 import { logAudit } from './_audit.js';
 import { validateDnsRecord } from './_validate.js';
+import { getUserAllowedZones, isZoneAllowed } from './_permissions.js';
 
 export async function onRequestPost(context) {
     const { cfToken } = context.data;
@@ -107,6 +108,15 @@ export async function onRequestPost(context) {
                 return { id: zoneId, name: null };
             });
             targetZones = await Promise.all(zonePromises);
+        }
+
+        // Filter target zones based on user permissions
+        const user = context.data.user;
+        if (user && user.role !== 'admin') {
+            const allowedZones = await getUserAllowedZones(env.CF_DNS_KV, user.username);
+            if (allowedZones.length > 0) {
+                targetZones = targetZones.filter(z => z.name && isZoneAllowed(allowedZones, z.name));
+            }
         }
 
         if (targetZones.length === 0) {

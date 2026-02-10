@@ -1,4 +1,5 @@
 import { checkRateLimit } from './_rate-limit.js';
+import { getUserAllowedZones, isZoneAllowed } from './_permissions.js';
 
 // Endpoints that accept non-JSON content types (e.g. multipart form data for file uploads)
 const NON_JSON_ENDPOINTS = [
@@ -156,6 +157,32 @@ export async function onRequest(context) {
             }
 
             context.data.cfToken = serverToken;
+
+            // Zone-level access control for non-admin users
+            const zoneMatch = url.pathname.match(/^\/api\/zones\/([^/]+)/);
+            if (zoneMatch && role !== 'admin' && env.CF_DNS_KV) {
+                const allowedZones = await getUserAllowedZones(env.CF_DNS_KV, username);
+                if (allowedZones.length > 0) {
+                    const zoneId = zoneMatch[1];
+                    // Fetch zone details from CF API to get the zone name
+                    const zoneRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${serverToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    const zoneData = await zoneRes.json();
+                    if (zoneData.success && zoneData.result) {
+                        if (!isZoneAllowed(allowedZones, zoneData.result.name)) {
+                            return withCorsHeaders(new Response(JSON.stringify({ error: 'You do not have access to this zone.' }), {
+                                status: 403,
+                                headers: { 'Content-Type': 'application/json' }
+                            }), origin);
+                        }
+                    }
+                }
+            }
+
             const response = await next();
             return withCorsHeaders(response, origin);
         } catch (e) {

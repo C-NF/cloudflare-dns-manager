@@ -353,6 +353,13 @@ const translations = {
         invalidJson: '无效的 JSON 格式',
         noRecordsFound: '未找到记录',
         jsonFormatHint: '格式: { "records": [{ "type": "A", "name": "@", "content": "1.2.3.4" }] }',
+        // Zone Permissions
+        allowedZones: '域名权限',
+        allowedZonesDesc: '限制此用户可管理的域名（留空表示允许所有域名）',
+        allowedZonesPlaceholder: '输入域名后按回车，如 example.com',
+        allowedZonesAll: '所有域名（无限制）',
+        allowedZonesAdd: '添加',
+        allowedZonesRemove: '移除',
     },
     en: {
         title: 'DNS Manager',
@@ -707,6 +714,13 @@ const translations = {
         invalidJson: 'Invalid JSON format',
         noRecordsFound: 'No records found',
         jsonFormatHint: 'Format: { "records": [{ "type": "A", "name": "@", "content": "1.2.3.4" }] }',
+        // Zone Permissions
+        allowedZones: 'Zone Permissions',
+        allowedZonesDesc: 'Restrict which zones this user can manage (empty = all zones)',
+        allowedZonesPlaceholder: 'Type a zone name and press Enter, e.g. example.com',
+        allowedZonesAll: 'All zones (unrestricted)',
+        allowedZonesAdd: 'Add',
+        allowedZonesRemove: 'Remove',
     }
 };
 
