@@ -2,6 +2,47 @@ import { logAudit } from '../../_audit.js';
 import { saveSnapshot } from '../../_snapshot.js';
 import { fireWebhook } from '../../_webhook.js';
 
+const VALID_DNS_TYPES = new Set([
+    'A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA', 'PTR', 'SPF',
+    'LOC', 'NAPTR', 'CERT', 'DNSKEY', 'DS', 'HTTPS', 'SSHFP', 'SVCB', 'TLSA', 'URI'
+]);
+
+function validateDnsRecord(body) {
+    const errors = [];
+
+    if (!body.type || !VALID_DNS_TYPES.has(body.type)) {
+        errors.push(`Invalid record type: "${body.type || ''}". Must be one of: ${[...VALID_DNS_TYPES].join(', ')}`);
+    }
+
+    if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
+        errors.push('Record name is required.');
+    } else if (body.name.length > 253) {
+        errors.push(`Record name exceeds maximum length of 253 characters (got ${body.name.length}).`);
+    }
+
+    if (!body.content || typeof body.content !== 'string' || body.content.trim().length === 0) {
+        errors.push('Record content is required.');
+    } else if (body.content.length > 4096) {
+        errors.push(`Record content exceeds maximum length of 4096 characters (got ${body.content.length}).`);
+    }
+
+    if (body.ttl !== undefined && body.ttl !== null) {
+        const ttl = Number(body.ttl);
+        if (!Number.isInteger(ttl) || ttl < 1) {
+            errors.push('TTL must be a positive integer (use 1 for automatic).');
+        }
+    }
+
+    if (body.priority !== undefined && body.priority !== null) {
+        const priority = Number(body.priority);
+        if (!Number.isInteger(priority) || priority < 0 || priority > 65535) {
+            errors.push('Priority must be an integer between 0 and 65535.');
+        }
+    }
+
+    return errors;
+}
+
 export async function onRequestGet(context) {
     const { cfToken } = context.data;
     const { zoneId } = context.params;
@@ -26,6 +67,17 @@ export async function onRequestPost(context) {
     const body = await context.request.json();
     const username = context.data.user?.username || 'client';
     const kv = context.env.CF_DNS_KV;
+
+    // Validate input
+    const validationErrors = validateDnsRecord(body);
+    if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({
+            success: false,
+            errors: validationErrors.map(msg => ({ message: msg })),
+            messages: [],
+            result: null
+        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
 
     // Snapshot before mutation
     await saveSnapshot(kv, zoneId, username, 'dns.create', cfToken);
@@ -64,6 +116,17 @@ export async function onRequestPatch(context) {
     const kv = context.env.CF_DNS_KV;
 
     if (!recordId) return new Response('Missing ID', { status: 400 });
+
+    // Validate input
+    const validationErrors = validateDnsRecord(body);
+    if (validationErrors.length > 0) {
+        return new Response(JSON.stringify({
+            success: false,
+            errors: validationErrors.map(msg => ({ message: msg })),
+            messages: [],
+            result: null
+        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
 
     // Snapshot before mutation
     await saveSnapshot(kv, zoneId, username, 'dns.update', cfToken);

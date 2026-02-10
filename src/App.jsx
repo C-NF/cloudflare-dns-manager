@@ -38,6 +38,8 @@ const App = () => {
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchResultsVisible, setSearchResultsVisible] = useState(50);
     const searchRef = useRef(null);
+    const refreshInProgress = useRef(false);
+    const refreshAbortController = useRef(null);
 
     // Modal visibility toggles
     const [showAddAccount, setShowAddAccount] = useState(false);
@@ -91,19 +93,33 @@ const App = () => {
         if (!auth || auth.mode !== 'server' || !auth.refreshToken) return;
 
         const REFRESH_INTERVAL = 12 * 60 * 1000; // 12 minutes
+        const abortController = new AbortController();
+        refreshAbortController.current = abortController;
 
         const doRefresh = async () => {
-            const updated = await tryRefreshToken(auth);
-            if (updated) {
-                setAuth(updated);
-                persistAuth(updated);
-            } else {
-                handleLogout();
+            if (refreshInProgress.current) return;
+            if (abortController.signal.aborted) return;
+            refreshInProgress.current = true;
+            try {
+                const updated = await tryRefreshToken(auth, abortController.signal);
+                if (abortController.signal.aborted) return;
+                if (updated) {
+                    setAuth(updated);
+                    persistAuth(updated);
+                } else {
+                    handleLogout();
+                }
+            } finally {
+                refreshInProgress.current = false;
             }
         };
 
         const intervalId = setInterval(doRefresh, REFRESH_INTERVAL);
-        return () => clearInterval(intervalId);
+        return () => {
+            clearInterval(intervalId);
+            abortController.abort();
+            refreshAbortController.current = null;
+        };
     }, [auth?.refreshToken, auth?.mode]);
 
     const showToast = (message, type = 'success') => {
@@ -233,14 +249,16 @@ const App = () => {
     };
 
     // Try to refresh token, returns updated auth or null on failure
-    const tryRefreshToken = async (authData) => {
+    const tryRefreshToken = async (authData, signal) => {
         if (!authData.refreshToken) return null;
         try {
-            const res = await fetch('/api/refresh', {
+            const fetchOptions = {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refreshToken: authData.refreshToken })
-            });
+            };
+            if (signal) fetchOptions.signal = signal;
+            const res = await fetch('/api/refresh', fetchOptions);
             if (res.ok) {
                 const data = await res.json();
                 if (data.token) {
@@ -316,6 +334,18 @@ const App = () => {
     };
 
     const handleLogout = () => {
+        // Fire-and-forget: revoke refresh token on the server
+        if (auth && auth.mode === 'server' && auth.refreshToken && auth.token) {
+            fetch('/api/logout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`
+                },
+                body: JSON.stringify({ refreshToken: auth.refreshToken })
+            }).catch(() => {});
+        }
+
         setAuth(null);
         setZones([]);
         setSelectedZone(null);

@@ -63,8 +63,8 @@ export async function onRequest(context) {
                 }
             }
 
-            // Admin routes, settings, account management, and passkey management don't need a CF token
-            if (url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/account/') || url.pathname.startsWith('/api/passkey/')) {
+            // Admin routes, settings, account management, passkey management, and logout don't need a CF token
+            if (url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/account/') || url.pathname.startsWith('/api/passkey/') || url.pathname === '/api/logout') {
                 return next();
             }
 
