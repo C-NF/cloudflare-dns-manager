@@ -93,6 +93,12 @@ export async function onRequest(context) {
         return withCorsHeaders(response, origin);
     }
 
+    // Skip auth for shared snapshot GET requests with a token parameter
+    if (method === 'GET' && /^\/api\/zones\/[^/]+\/share-snapshot$/.test(url.pathname) && url.searchParams.get('token')) {
+        const response = await next();
+        return withCorsHeaders(response, origin);
+    }
+
     // Get tokens from headers
     const clientToken = request.headers.get('X-Cloudflare-Token');
     const authHeader = request.headers.get('Authorization');

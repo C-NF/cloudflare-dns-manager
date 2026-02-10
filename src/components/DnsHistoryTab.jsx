@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, GitCompare, ArrowRight, X, Plus, Minus, ArrowLeftRight } from 'lucide-react';
+import { RefreshCw, GitCompare, ArrowRight, X, Plus, Minus, ArrowLeftRight, Share2, Copy, Check } from 'lucide-react';
 import { getAuthHeaders } from '../utils/auth.ts';
 
 const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, records }) => {
@@ -16,6 +16,12 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
     const [diffLoading, setDiffLoading] = useState(null);
     const [diffSnapshotKey, setDiffSnapshotKey] = useState(null);
     const [showDiffModal, setShowDiffModal] = useState(false);
+
+    // Share state
+    const [shareLoading, setShareLoading] = useState(null);
+    const [shareUrl, setShareUrl] = useState(null);
+    const [shareForKey, setShareForKey] = useState(null);
+    const [shareCopied, setShareCopied] = useState(false);
 
     const fetchSnapshots = async (page = 1) => {
         setSnapshotsLoading(true);
@@ -89,6 +95,44 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
             showToast(t('errorOccurred'), 'error');
         }
         setDiffLoading(null);
+    };
+
+    const handleShare = async (snapshotKey) => {
+        setShareLoading(snapshotKey);
+        setShareUrl(null);
+        setShareForKey(null);
+        setShareCopied(false);
+        try {
+            const res = await fetch(`/api/zones/${zone.id}/share-snapshot`, {
+                method: 'POST',
+                headers: { ...getAuthHeaders(auth), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ snapshotKey })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setShareUrl(data.shareUrl);
+                setShareForKey(snapshotKey);
+            } else {
+                const data = await res.json().catch(() => ({}));
+                showToast(data.error || t('errorOccurred'), 'error');
+            }
+        } catch (err) {
+            console.error('Failed to create share link:', err);
+            showToast(t('errorOccurred'), 'error');
+        }
+        setShareLoading(null);
+    };
+
+    const handleCopyShareUrl = async () => {
+        if (!shareUrl) return;
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            setShareCopied(true);
+            showToast(t('copied'));
+            setTimeout(() => setShareCopied(false), 2000);
+        } catch {
+            showToast(t('errorOccurred'), 'error');
+        }
     };
 
     const DiffModal = () => {
@@ -351,6 +395,15 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
                                         </button>
                                         <button
                                             className="btn btn-outline"
+                                            style={{ padding: '3px 8px', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}
+                                            onClick={() => handleShare(snap.key)}
+                                            disabled={shareLoading === snap.key}
+                                        >
+                                            {shareLoading === snap.key ? <RefreshCw className="spin" size={11} /> : <Share2 size={11} />}
+                                            {t('shareSnapshot')}
+                                        </button>
+                                        <button
+                                            className="btn btn-outline"
                                             style={{ padding: '3px 8px', fontSize: '0.7rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                             onClick={() => handleRollback(snap.key)}
                                             disabled={rollbackLoading === snap.key}
@@ -358,6 +411,48 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
                                             {rollbackLoading === snap.key ? <RefreshCw className="spin" size={11} /> : <RefreshCw size={11} />}
                                             {t('rollback')}
                                         </button>
+                                        {shareUrl && shareForKey === snap.key && (
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                marginTop: '6px',
+                                                padding: '4px 8px',
+                                                background: 'var(--hover-bg, #f9fafb)',
+                                                borderRadius: '6px',
+                                                border: '1px solid var(--border)',
+                                            }}>
+                                                <input
+                                                    type="text"
+                                                    value={shareUrl}
+                                                    readOnly
+                                                    style={{
+                                                        flex: 1,
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        fontSize: '0.65rem',
+                                                        color: 'var(--text)',
+                                                        outline: 'none',
+                                                        minWidth: '100px',
+                                                    }}
+                                                    onClick={(e) => e.target.select()}
+                                                />
+                                                <button
+                                                    onClick={handleCopyShareUrl}
+                                                    style={{
+                                                        border: 'none',
+                                                        background: 'transparent',
+                                                        cursor: 'pointer',
+                                                        padding: '2px',
+                                                        display: 'flex',
+                                                        color: shareCopied ? 'var(--success, #16a34a)' : 'var(--primary)',
+                                                    }}
+                                                    title={t('copied')}
+                                                >
+                                                    {shareCopied ? <Check size={12} /> : <Copy size={12} />}
+                                                </button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

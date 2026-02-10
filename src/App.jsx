@@ -15,6 +15,7 @@ const TotpModal = React.lazy(() => import('./components/TotpModal.jsx'));
 const BulkOperationsModal = React.lazy(() => import('./components/BulkOperationsModal.jsx'));
 const UserManagement = React.lazy(() => import('./components/UserManagement.jsx'));
 const Dashboard = React.lazy(() => import('./components/Dashboard.jsx'));
+const OnboardingTour = React.lazy(() => import('./components/OnboardingTour.jsx'));
 
 const App = () => {
     const { t, lang, changeLang, toggleLang } = useTranslate();
@@ -57,6 +58,76 @@ const App = () => {
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
     const zoneDetailRef = useRef(null);
     const searchInputRef = useRef(null);
+
+    useEffect(() => {
+        document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+        localStorage.setItem('darkMode', String(darkMode));
+    }, [darkMode]);
+
+    const MAX_TOASTS = 3;
+    const dismissToast = (id) => {
+        setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 300);
+    };
+    const showToast = (message, type = 'success') => {
+        const id = ++toastIdCounter.current;
+        const toast = { message, type, id, createdAt: Date.now(), exiting: false };
+        setToasts(prev => {
+            const next = [toast, ...prev];
+            if (next.length > MAX_TOASTS) {
+                return next.slice(0, MAX_TOASTS);
+            }
+            return next;
+        });
+        setTimeout(() => dismissToast(id), 3000);
+    };
+
+    const persistAuth = (authData) => {
+        const storage = authData.remember ? localStorage : sessionStorage;
+        storage.setItem('auth_session', JSON.stringify(authData));
+    };
+
+    const tryRefreshToken = async (authData, signal) => {
+        try {
+            const res = await fetch('/api/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken: authData.refreshToken }),
+                signal
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const sessions = (authData.sessions || []).map((s, i) =>
+                    i === (authData.activeSessionIndex || 0) ? { ...s, token: data.token } : s
+                );
+                return { ...authData, token: data.token, refreshToken: data.refreshToken || authData.refreshToken, sessions };
+            }
+        } catch (e) {
+            if (e.name !== 'AbortError') console.error('Token refresh failed:', e);
+        }
+        return null;
+    };
+
+    const handleLogout = () => {
+        if (auth && auth.mode === 'server' && auth.token) {
+            fetch('/api/logout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` },
+                body: JSON.stringify({ refreshToken: auth.refreshToken })
+            }).catch(() => {});
+        }
+        if (refreshAbortController.current) {
+            refreshAbortController.current.abort();
+            refreshAbortController.current = null;
+        }
+        setAuth(null);
+        setZones([]);
+        setSelectedZone(null);
+        localStorage.removeItem('auth_session');
+        sessionStorage.removeItem('auth_session');
+    };
 
     // Online/offline detection
     useEffect(() => {
@@ -102,11 +173,6 @@ const App = () => {
             window.removeEventListener('scroll', handleScroll, { capture: true });
         };
     }, [showAccountSelector]);
-
-    useEffect(() => {
-        document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-        localStorage.setItem('darkMode', String(darkMode));
-    }, [darkMode]);
 
     // Global keyboard shortcuts
     useEffect(() => {
@@ -170,7 +236,7 @@ const App = () => {
                     setAuth(updated);
                     persistAuth(updated);
                 } else {
-                    handleLogout();
+                    doLogout();
                 }
             } finally {
                 refreshInProgress.current = false;
@@ -184,33 +250,6 @@ const App = () => {
             refreshAbortController.current = null;
         };
     }, [auth?.refreshToken, auth?.mode]);
-
-    const MAX_TOASTS = 3;
-    const dismissToast = (id) => {
-        setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
-        setTimeout(() => {
-            setToasts(prev => prev.filter(t => t.id !== id));
-        }, 300);
-    };
-    const showToast = (message, type = 'success') => {
-        const id = ++toastIdCounter.current;
-        const toast = { message, type, id, createdAt: Date.now(), exiting: false };
-        setToasts(prev => {
-            const next = [toast, ...prev];
-            // Auto-remove oldest if exceeding max
-            if (next.length > MAX_TOASTS) {
-                const removed = next.slice(MAX_TOASTS);
-                removed.forEach(t => {
-                    setTimeout(() => setToasts(p => p.filter(x => x.id !== t.id)), 0);
-                });
-                return next.slice(0, MAX_TOASTS);
-            }
-            return next;
-        });
-        // Auto-dismiss after 3 seconds
-        setTimeout(() => dismissToast(id), 3000);
-        return id;
-    };
 
     const selectZone = (zone, authData) => {
         const sessions = authData.sessions || [];
@@ -362,41 +401,6 @@ const App = () => {
         setLoading(false);
     };
 
-    // Try to refresh token, returns updated auth or null on failure
-    const tryRefreshToken = async (authData, signal) => {
-        if (!authData.refreshToken) return null;
-        try {
-            const fetchOptions = {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refreshToken: authData.refreshToken })
-            };
-            if (signal) fetchOptions.signal = signal;
-            const res = await fetch('/api/refresh', fetchOptions);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.token) {
-                    const updated = { ...authData, token: data.token };
-                    const si = updated.activeSessionIndex || 0;
-                    if (updated.sessions && updated.sessions[si]) {
-                        const newSessions = [...updated.sessions];
-                        newSessions[si] = { ...newSessions[si], token: data.token };
-                        updated.sessions = newSessions;
-                    }
-                    if (data.refreshToken) updated.refreshToken = data.refreshToken;
-                    if (data.accounts) {
-                        updated.accounts = data.accounts;
-                        if (updated.sessions && updated.sessions[si]) {
-                            updated.sessions[si].accounts = data.accounts;
-                        }
-                    }
-                    return updated;
-                }
-            }
-        } catch (err) { console.error('Token refresh failed:', err); }
-        return null;
-    };
-
     useEffect(() => {
         const saved = localStorage.getItem('auth_session') || sessionStorage.getItem('auth_session');
         if (saved) {
@@ -441,30 +445,11 @@ const App = () => {
         fetchZones(newAuth);
     };
 
-    const persistAuth = (authData) => {
-        const storage = authData.remember ? localStorage : sessionStorage;
-        storage.setItem('auth_session', JSON.stringify(authData));
-        if (!authData.remember) sessionStorage.setItem('auth_session', JSON.stringify(authData));
-    };
-
-    const handleLogout = () => {
-        // Fire-and-forget: revoke refresh token on the server
-        if (auth && auth.mode === 'server' && auth.refreshToken && auth.token) {
-            fetch('/api/logout', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`
-                },
-                body: JSON.stringify({ refreshToken: auth.refreshToken })
-            }).catch(() => {});
-        }
-
-        setAuth(null);
+    // Wrap the context handleLogout to also clear local zone state
+    const doLogout = () => {
+        handleLogout();
         setZones([]);
         setSelectedZone(null);
-        localStorage.removeItem('auth_session');
-        sessionStorage.removeItem('auth_session');
     };
 
     const handleRecoveryLogin = async () => {
@@ -727,7 +712,7 @@ const App = () => {
     const handleRemoveSession = (sessionIdx) => {
         const sessions = auth.sessions || [];
         if (sessions.length <= 1) {
-            handleLogout();
+            doLogout();
             return;
         }
         const newSessions = sessions.filter((_, i) => i !== sessionIdx);
@@ -1258,7 +1243,7 @@ const App = () => {
                                 <button
                                     className="unstyled"
                                     role="menuitem"
-                                    onClick={handleLogout}
+                                    onClick={doLogout}
                                     style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderRadius: '6px', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--error)', width: '100%' }}
                                     onMouseEnter={e => e.currentTarget.style.background = '#fef2f2'}
                                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -1458,7 +1443,7 @@ const App = () => {
                                     {auth.mode === 'server' ? t('noZonesServerExplanation') : t('noZonesClientExplanation')}
                                 </p>
                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                                    <button className="btn btn-outline" onClick={handleLogout} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <button className="btn btn-outline" onClick={doLogout} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <LogOut size={14} /> {t('backToLogin')}
                                     </button>
                                     <button className="btn btn-outline" onClick={() => fetchZones(auth)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1526,6 +1511,9 @@ const App = () => {
                     Cloudflare DNS Manager &mdash; {{ zh: '您的数据安全是我们的首要任务', en: 'Your data security is our top priority', ja: 'お客様のデータセキュリティは最優先事項です', ko: '여러분의 데이터 보안은 최우선 과제입니다' }[lang]}
                 </p>
             </footer>
+
+            {/* Onboarding Tour */}
+            <OnboardingTour t={t} />
         </div >
         </Suspense>
     );

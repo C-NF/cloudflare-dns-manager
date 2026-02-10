@@ -1,11 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, Search, RefreshCw } from 'lucide-react';
 
+const VALID_TYPES = new Set(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA', 'PTR', 'SOA', 'SPF', 'TLSA', 'SSHFP', 'DS', 'NAPTR', 'HTTPS', 'SVCB', 'URI', 'LOC', 'CERT']);
+
 const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeaders, t, showToast }) => {
     const [bulkImportJson, setBulkImportJson] = useState('');
     const [bulkImportPreview, setBulkImportPreview] = useState(null);
     const [bulkImportLoading, setBulkImportLoading] = useState(false);
     const [bulkImportResult, setBulkImportResult] = useState(null);
+    const [detectedFormat, setDetectedFormat] = useState(null);
     const jsonFileInputRef = useRef(null);
 
     const resetState = () => {
@@ -13,6 +16,7 @@ const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeader
         setBulkImportPreview(null);
         setBulkImportLoading(false);
         setBulkImportResult(null);
+        setDetectedFormat(null);
     };
 
     const handleClose = () => {
@@ -20,24 +24,173 @@ const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeader
         onClose();
     };
 
-    const parseBulkImportJson = (jsonStr) => {
+    // Detect format from content
+    const detectFormat = (text) => {
+        const trimmed = text.trim();
+        if (!trimmed) return null;
+        // JSON: starts with [ or {
+        if (trimmed[0] === '[' || trimmed[0] === '{') return 'json';
+        // CSV: first line has comma-separated headers including common DNS fields
+        const firstLine = trimmed.split('\n')[0].toLowerCase();
+        if (firstLine.includes(',') && (firstLine.includes('type') || firstLine.includes('name') || firstLine.includes('content'))) return 'csv';
+        // BIND: contains lines with IN keyword
+        const lines = trimmed.split('\n').filter(l => l.trim() && !l.trim().startsWith(';') && !l.trim().startsWith('$'));
+        const bindPattern = /\bIN\s+(A|AAAA|CNAME|MX|TXT|NS|SRV|CAA|PTR|SOA)\b/i;
+        if (lines.some(l => bindPattern.test(l))) return 'bind';
+        return 'json'; // default fallback
+    };
+
+    // Parse JSON format
+    const parseJsonFormat = (text) => {
         try {
-            const parsed = JSON.parse(jsonStr);
+            const parsed = JSON.parse(text);
             const records = parsed.records || parsed;
-            if (!Array.isArray(records)) {
-                return { error: t('invalidJson') };
-            }
-            if (records.length === 0) {
-                return { error: t('noRecordsFound') };
-            }
+            if (!Array.isArray(records)) return { error: t('invalidJson') };
+            if (records.length === 0) return { error: t('noRecordsFound') };
             return { records };
         } catch {
             return { error: t('invalidJson') };
         }
     };
 
+    // Parse BIND zone file format
+    const parseBindFormat = (text) => {
+        const records = [];
+        const lines = text.split('\n');
+        let lastOwner = '@';
+
+        for (const rawLine of lines) {
+            const line = rawLine.replace(/;.*$/, '').trim();
+            if (!line || line.startsWith('$')) continue;
+
+            // Match patterns like: name [TTL] [CLASS] TYPE content
+            // or: [TTL] [CLASS] TYPE content (using last owner)
+            const bindRegex = /^(\S+)?\s+(?:(\d+)\s+)?(?:IN\s+)?(\S+)\s+(.+)$/i;
+            const match = line.match(bindRegex);
+            if (!match) continue;
+
+            let [, owner, ttlStr, type, content] = match;
+            type = type.toUpperCase();
+
+            if (!VALID_TYPES.has(type)) {
+                // Try without owner: TTL IN TYPE content
+                const altRegex = /^(?:(\d+)\s+)?IN\s+(\S+)\s+(.+)$/i;
+                const altMatch = line.match(altRegex);
+                if (altMatch) {
+                    ttlStr = altMatch[1];
+                    type = altMatch[2].toUpperCase();
+                    content = altMatch[3];
+                    owner = null;
+                } else {
+                    continue;
+                }
+            }
+
+            if (owner) lastOwner = owner;
+            const name = (owner || lastOwner || '@').replace(/\.$/, '');
+            const ttl = ttlStr ? parseInt(ttlStr) : 1;
+
+            // Clean content - remove trailing dot, surrounding quotes for TXT
+            let cleanContent = content.trim().replace(/\.$/, '');
+            if (type === 'TXT' && cleanContent.startsWith('"') && cleanContent.endsWith('"')) {
+                cleanContent = cleanContent.slice(1, -1);
+            }
+
+            const record = { type, name, content: cleanContent, ttl };
+
+            // Handle MX priority
+            if (type === 'MX') {
+                const mxMatch = cleanContent.match(/^(\d+)\s+(.+)$/);
+                if (mxMatch) {
+                    record.priority = parseInt(mxMatch[1]);
+                    record.content = mxMatch[2].replace(/\.$/, '');
+                }
+            }
+
+            records.push(record);
+        }
+
+        if (records.length === 0) return { error: t('noRecordsFound') };
+        return { records };
+    };
+
+    // Parse CSV format
+    const parseCsvFormat = (text) => {
+        const lines = text.trim().split('\n');
+        if (lines.length < 2) return { error: t('noRecordsFound') };
+
+        // Parse header
+        const headerLine = lines[0].toLowerCase().trim();
+        const headers = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+
+        const typeIdx = headers.indexOf('type');
+        const nameIdx = headers.indexOf('name');
+        const contentIdx = headers.indexOf('content');
+        const ttlIdx = headers.indexOf('ttl');
+        const proxiedIdx = headers.indexOf('proxied');
+        const priorityIdx = headers.indexOf('priority');
+
+        if (typeIdx === -1 || nameIdx === -1 || contentIdx === -1) {
+            return { error: t('importCsvMissingHeaders') };
+        }
+
+        const records = [];
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            // Simple CSV parsing (handles quoted fields with commas)
+            const fields = [];
+            let current = '';
+            let inQuotes = false;
+            for (const ch of line) {
+                if (ch === '"') { inQuotes = !inQuotes; continue; }
+                if (ch === ',' && !inQuotes) { fields.push(current.trim()); current = ''; continue; }
+                current += ch;
+            }
+            fields.push(current.trim());
+
+            const type = (fields[typeIdx] || '').toUpperCase();
+            const name = fields[nameIdx] || '@';
+            const content = fields[contentIdx] || '';
+
+            if (!type || !content) continue;
+
+            const record = { type, name, content };
+            if (ttlIdx !== -1 && fields[ttlIdx]) {
+                const ttlVal = parseInt(fields[ttlIdx]);
+                record.ttl = isNaN(ttlVal) ? 1 : ttlVal;
+            }
+            if (proxiedIdx !== -1 && fields[proxiedIdx]) {
+                record.proxied = fields[proxiedIdx].toLowerCase() === 'true' || fields[proxiedIdx] === '1';
+            }
+            if (priorityIdx !== -1 && fields[priorityIdx]) {
+                const pri = parseInt(fields[priorityIdx]);
+                if (!isNaN(pri)) record.priority = pri;
+            }
+
+            records.push(record);
+        }
+
+        if (records.length === 0) return { error: t('noRecordsFound') };
+        return { records };
+    };
+
+    // Auto-detect and parse
+    const parseImportData = (text) => {
+        const format = detectFormat(text);
+        setDetectedFormat(format);
+
+        switch (format) {
+            case 'json': return parseJsonFormat(text);
+            case 'bind': return parseBindFormat(text);
+            case 'csv': return parseCsvFormat(text);
+            default: return parseJsonFormat(text);
+        }
+    };
+
     const handleBulkImportPreview = () => {
-        const result = parseBulkImportJson(bulkImportJson);
+        const result = parseImportData(bulkImportJson);
         if (result.error) {
             showToast(result.error, 'error');
             setBulkImportPreview(null);
@@ -100,14 +253,24 @@ const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeader
                         <X size={20} />
                     </button>
                 </div>
-                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>{t('bulkImportDesc')}</p>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t('bulkImportDesc')}</p>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>{t('importFormatHint')}</p>
+
+                {detectedFormat && (
+                    <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('importDetectedFormat')}:</span>
+                        <span className="badge badge-blue" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
+                            {detectedFormat.toUpperCase()}
+                        </span>
+                    </div>
+                )}
 
                 <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>{t('pasteJson')}</label>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>{t('importPasteData')}</label>
                     <textarea
                         value={bulkImportJson}
                         onChange={(e) => { setBulkImportJson(e.target.value); setBulkImportPreview(null); setBulkImportResult(null); }}
-                        placeholder={t('jsonFormatHint')}
+                        placeholder={t('importPlaceholder')}
                         style={{
                             width: '100%',
                             minHeight: '120px',
@@ -129,11 +292,11 @@ const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeader
                         ref={jsonFileInputRef}
                         style={{ display: 'none' }}
                         onChange={handleJsonFileUpload}
-                        accept=".json"
+                        accept=".json,.csv,.txt,.zone"
                     />
                     <button type="button" className="btn btn-outline" style={{ fontSize: '0.8125rem' }} onClick={() => jsonFileInputRef.current.click()}>
                         <Upload size={14} />
-                        {t('uploadJsonFile')}
+                        {t('importUploadFile')}
                     </button>
                     <button type="button" className="btn btn-primary" style={{ fontSize: '0.8125rem' }} onClick={handleBulkImportPreview} disabled={!bulkImportJson.trim()}>
                         <Search size={14} />
