@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Globe, Server, User, Plus, Trash2, RefreshCw, CheckCircle, ChevronDown, Upload, Download, FileText, Search, Clock } from 'lucide-react';
 import { getAuthHeaders } from '../utils/auth.ts';
 import ConfirmModal from './ConfirmModal.jsx';
@@ -10,7 +10,7 @@ import SaasTab from './SaasTab.jsx';
 
 const ScheduledChangesModal = React.lazy(() => import('./ScheduledChangesModal.jsx'));
 
-const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, auth, onBack, t, showToast, onAddAccount, onAddSession, onToggleZoneStorage, zoneStorageLoading }) => {
+const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, auth, onBack, t, showToast, onAddAccount, onAddSession, onToggleZoneStorage, zoneStorageLoading }, ref) => {
     const [tab, setTab] = useState('dns');
     const [records, setRecords] = useState([]);
     const [hostnames, setHostnames] = useState([]);
@@ -41,6 +41,11 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
     // Zone Selector State
     const [showZoneSelector, setShowZoneSelector] = useState(false);
     const zoneSelectorRef = useRef(null);
+
+    // Expose openAddRecord to parent via ref
+    useImperativeHandle(ref, () => ({
+        openAddRecord: () => { setEditingRecord(null); setShowDNSModal(true); }
+    }));
 
     const openConfirm = (title, message, onConfirm) => {
         setConfirmModal({ show: true, title, message, onConfirm });
@@ -678,6 +683,6 @@ const ZoneDetail = ({ zone, zones, onSwitchZone, onRefreshZones, zonesLoading, a
             )}
         </div >
     );
-};
+});
 
 export default ZoneDetail;

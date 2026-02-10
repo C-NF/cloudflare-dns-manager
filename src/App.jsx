@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
-import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers } from 'lucide-react';
+import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers, Keyboard, WifiOff } from 'lucide-react';
 import useTranslate from './hooks/useTranslate.ts';
 import { getAuthHeaders } from './utils/auth.ts';
 import SecurityBadges from './components/SecurityBadges.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 const Login = React.lazy(() => import('./components/Login.jsx'));
 const ZoneDetail = React.lazy(() => import('./components/ZoneDetail.jsx'));
@@ -23,8 +24,8 @@ const App = () => {
     const [zones, setZones] = useState([]);
     const [selectedZone, setSelectedZone] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [toast, setToast] = useState(null);
-    const toastTimer = useRef(null);
+    const [toasts, setToasts] = useState([]);
+    const toastIdCounter = useRef(0);
     const [recoveryToken, setRecoveryToken] = useState('');
     const [recoveryLoading, setRecoveryLoading] = useState(false);
     const [recoveryError, setRecoveryError] = useState('');
@@ -43,6 +44,7 @@ const App = () => {
     const refreshInProgress = useRef(false);
     const refreshAbortController = useRef(null);
     const zoneFetchCache = useRef(new Map());
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
     // Modal visibility toggles
     const [showAddAccount, setShowAddAccount] = useState(false);
@@ -52,6 +54,21 @@ const App = () => {
     const [showTotpModal, setShowTotpModal] = useState(false);
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [showUserManagement, setShowUserManagement] = useState(false);
+    const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+    const zoneDetailRef = useRef(null);
+    const searchInputRef = useRef(null);
+
+    // Online/offline detection
+    useEffect(() => {
+        const handleOnline = () => setIsOffline(false);
+        const handleOffline = () => setIsOffline(true);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     // Sync isLocalMode from global preference
     useEffect(() => {
@@ -91,6 +108,49 @@ const App = () => {
         localStorage.setItem('darkMode', String(darkMode));
     }, [darkMode]);
 
+    // Global keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            const tag = e.target.tagName;
+            const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable;
+
+            if (e.key === 'Escape') {
+                if (showShortcutsHelp) { setShowShortcutsHelp(false); return; }
+                if (showAddAccount) { setShowAddAccount(false); return; }
+                if (showAddSession) { setShowAddSession(false); return; }
+                if (showChangePassword) { setShowChangePassword(false); return; }
+                if (showPasskeyModal) { setShowPasskeyModal(false); return; }
+                if (showTotpModal) { setShowTotpModal(false); return; }
+                if (showBulkModal) { setShowBulkModal(false); return; }
+                if (showUserManagement) { setShowUserManagement(false); return; }
+                if (showAccountSelector) { setShowAccountSelector(false); return; }
+                if (searchResults !== null) { setSearchResults(null); return; }
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                if (searchInputRef.current) searchInputRef.current.focus();
+                return;
+            }
+
+            if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+                e.preventDefault();
+                if (selectedZone && zoneDetailRef.current) zoneDetailRef.current.openAddRecord();
+                return;
+            }
+
+            if (e.key === '?' && !isInputFocused) {
+                e.preventDefault();
+                setShowShortcutsHelp(prev => !prev);
+                return;
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [showShortcutsHelp, showAddAccount, showAddSession, showChangePassword, showPasskeyModal, showTotpModal, showBulkModal, showUserManagement, showAccountSelector, searchResults, selectedZone]);
+
     // Periodic token refresh (every 12 minutes) for server mode
     useEffect(() => {
         if (!auth || auth.mode !== 'server' || !auth.refreshToken) return;
@@ -125,10 +185,31 @@ const App = () => {
         };
     }, [auth?.refreshToken, auth?.mode]);
 
+    const MAX_TOASTS = 3;
+    const dismissToast = (id) => {
+        setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 300);
+    };
     const showToast = (message, type = 'success') => {
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        setToast({ message, type, id: Date.now() });
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
+        const id = ++toastIdCounter.current;
+        const toast = { message, type, id, createdAt: Date.now(), exiting: false };
+        setToasts(prev => {
+            const next = [toast, ...prev];
+            // Auto-remove oldest if exceeding max
+            if (next.length > MAX_TOASTS) {
+                const removed = next.slice(MAX_TOASTS);
+                removed.forEach(t => {
+                    setTimeout(() => setToasts(p => p.filter(x => x.id !== t.id)), 0);
+                });
+                return next.slice(0, MAX_TOASTS);
+            }
+            return next;
+        });
+        // Auto-dismiss after 3 seconds
+        setTimeout(() => dismissToast(id), 3000);
+        return id;
     };
 
     const selectZone = (zone, authData) => {
@@ -710,35 +791,115 @@ const App = () => {
     return (
         <Suspense fallback={<div className="lazy-loading" />}>
         <div className="fade-in">
-            {toast && (
-                <div key={toast.id} style={{
+            {isOffline && (
+                <div style={{
                     position: 'fixed',
-                    top: '24px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 9999,
-                    background: toast.type === 'success' ? 'var(--card-bg)' : 'var(--card-bg)',
-                    color: toast.type === 'success' ? 'var(--text)' : '#c53030',
-                    padding: '10px 16px',
-                    borderRadius: '12px',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 10000,
+                    background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+                    color: '#fff',
+                    padding: '8px 16px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '10px',
-                    border: toast.type === 'success' ? '1px solid var(--border)' : '1px solid var(--border)',
-                    animation: 'fadeDown 0.3s ease-out'
+                    justifyContent: 'center',
+                    gap: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                 }}>
-                    <style>{`
-                        @keyframes fadeDown {
-                            from { opacity: 0; transform: translate(-50%, -20px); }
-                            to { opacity: 1; transform: translate(-50%, 0); }
-                        }
-                    `}</style>
-                    {toast.type === 'success' ? <CheckCircle size={18} color="var(--success)" /> : <AlertCircle size={18} color="var(--error)" />}
-                    <span style={{ fontSize: '0.875rem', fontWeight: '600', whiteSpace: 'nowrap' }}>{toast.message}</span>
-                    <button onClick={() => setToast(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', marginLeft: '4px' }} aria-label="Close notification">
-                        <X size={14} color="var(--text-muted)" />
-                    </button>
+                    <WifiOff size={16} />
+                    <span>{t('offlineMessage')}</span>
+                </div>
+            )}
+            {/* Toast Stack */}
+            {toasts.length > 0 && (
+                <div className="toast-stack">
+                    {toasts.map((toastItem) => (
+                        <div key={toastItem.id} className={`toast-item ${toastItem.exiting ? 'toast-exit' : 'toast-enter'}`} style={{
+                            color: toastItem.type === 'success' ? 'var(--text)' : '#c53030',
+                        }}>
+                            {toastItem.type === 'success' ? <CheckCircle size={18} color="var(--success)" /> : <AlertCircle size={18} color="var(--error)" />}
+                            <span style={{ fontSize: '0.875rem', fontWeight: '600', whiteSpace: 'nowrap', flex: 1 }}>{toastItem.message}</span>
+                            <button onClick={() => dismissToast(toastItem.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', marginLeft: '4px', flexShrink: 0 }} aria-label="Close notification">
+                                <X size={14} color="var(--text-muted)" />
+                            </button>
+                            <div className="toast-progress" style={{ animationDuration: '3s' }} />
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Keyboard Shortcuts Help Modal */}
+            {showShortcutsHelp && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 10000,
+                    background: 'var(--modal-overlay)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    animation: 'fadeIn 0.2s ease-out'
+                }} onClick={() => setShowShortcutsHelp(false)}>
+                    <div className="glass-card fade-in" style={{
+                        width: '380px', maxWidth: '90vw', padding: '1.5rem',
+                        position: 'relative'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+                            <h3 style={{ fontSize: '1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Keyboard size={18} color="var(--primary)" />
+                                {t('keyboardShortcuts')}
+                            </h3>
+                            <button onClick={() => setShowShortcutsHelp(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex' }} aria-label="Close">
+                                <X size={16} color="var(--text-muted)" />
+                            </button>
+                        </div>
+                        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>{t('shortcutGeneral')}</p>
+                        {[
+                            { keys: ['Ctrl', 'K'], altKeys: ['\u2318', 'K'], label: t('shortcutFocusSearch') },
+                            { keys: ['Ctrl', 'N'], altKeys: ['\u2318', 'N'], label: t('shortcutNewRecord') },
+                            { keys: ['Esc'], label: t('shortcutCloseModal') },
+                            { keys: ['?'], label: t('shortcutShowHelp') },
+                        ].map((shortcut, i) => (
+                            <div key={i} style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: '0.5rem 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none'
+                            }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text)' }}>{shortcut.label}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    {shortcut.keys.map((key, ki) => (
+                                        <React.Fragment key={ki}>
+                                            {ki > 0 && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>+</span>}
+                                            <kbd style={{
+                                                display: 'inline-block', padding: '2px 6px',
+                                                fontSize: '0.7rem', fontFamily: 'inherit', fontWeight: 600,
+                                                background: 'var(--hover-bg)', border: '1px solid var(--border)',
+                                                borderRadius: '4px', color: 'var(--text-muted)',
+                                                minWidth: '22px', textAlign: 'center',
+                                                boxShadow: '0 1px 0 var(--border)'
+                                            }}>{key}</kbd>
+                                        </React.Fragment>
+                                    ))}
+                                    {shortcut.altKeys && (
+                                        <>
+                                            <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', margin: '0 2px' }}>{t('shortcutOr')}</span>
+                                            {shortcut.altKeys.map((key, ki) => (
+                                                <React.Fragment key={ki}>
+                                                    {ki > 0 && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>+</span>}
+                                                    <kbd style={{
+                                                        display: 'inline-block', padding: '2px 6px',
+                                                        fontSize: '0.7rem', fontFamily: 'inherit', fontWeight: 600,
+                                                        background: 'var(--hover-bg)', border: '1px solid var(--border)',
+                                                        borderRadius: '4px', color: 'var(--text-muted)',
+                                                        minWidth: '22px', textAlign: 'center',
+                                                        boxShadow: '0 1px 0 var(--border)'
+                                                    }}>{key}</kbd>
+                                                </React.Fragment>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
             <header>
@@ -783,11 +944,29 @@ const App = () => {
                         {darkMode ? <Sun size={18} /> : <Moon size={18} />}
                     </button>
 
+                    <button
+                        onClick={() => setShowShortcutsHelp(true)}
+                        style={{ border: 'none', background: 'transparent', padding: '8px', cursor: 'pointer', display: 'flex', color: 'var(--text-muted)', borderRadius: '8px', transition: 'all 0.2s' }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(0,0,0,0.05)';
+                            e.currentTarget.style.color = 'var(--primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = 'var(--text-muted)';
+                        }}
+                        title={t('keyboardShortcuts')}
+                        aria-label={t('keyboardShortcuts')}
+                    >
+                        <Keyboard size={18} />
+                    </button>
+
                     {auth.mode === 'server' && (
                         <div ref={searchRef} style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--hover-bg)', borderRadius: '8px', padding: '2px 8px', border: '1px solid var(--border)' }}>
                                 <Search size={14} color="var(--text-muted)" />
                                 <input
+                                    ref={searchInputRef}
                                     type="text"
                                     placeholder={t('globalSearchPlaceholder')}
                                     value={searchQuery}
@@ -1095,38 +1274,45 @@ const App = () => {
             </header>
 
             {/* Extracted Modal Components */}
-            <AddAccountModal show={showAddAccount} onClose={() => setShowAddAccount(false)} auth={auth} t={t} showToast={showToast} onAccountAdded={handleAccountAdded} />
-            <AddSessionModal show={showAddSession} onClose={() => setShowAddSession(false)} auth={auth} t={t} showToast={showToast} onSessionAdded={handleSessionAdded} />
-            <ChangePasswordModal show={showChangePassword} onClose={() => setShowChangePassword(false)} auth={auth} t={t} showToast={showToast} />
-            <PasskeyModal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} auth={auth} t={t} showToast={showToast} />
-            <TotpModal show={showTotpModal} onClose={() => setShowTotpModal(false)} auth={auth} t={t} showToast={showToast} />
-            <BulkOperationsModal show={showBulkModal} onClose={() => setShowBulkModal(false)} auth={auth} t={t} showToast={showToast} zones={zones} />
-            <UserManagement show={showUserManagement} onClose={() => setShowUserManagement(false)} auth={auth} t={t} showToast={showToast} />
+            <ErrorBoundary t={t}>
+                <AddAccountModal show={showAddAccount} onClose={() => setShowAddAccount(false)} auth={auth} t={t} showToast={showToast} onAccountAdded={handleAccountAdded} />
+                <AddSessionModal show={showAddSession} onClose={() => setShowAddSession(false)} auth={auth} t={t} showToast={showToast} onSessionAdded={handleSessionAdded} />
+                <ChangePasswordModal show={showChangePassword} onClose={() => setShowChangePassword(false)} auth={auth} t={t} showToast={showToast} />
+                <PasskeyModal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} auth={auth} t={t} showToast={showToast} />
+                <TotpModal show={showTotpModal} onClose={() => setShowTotpModal(false)} auth={auth} t={t} showToast={showToast} />
+                <BulkOperationsModal show={showBulkModal} onClose={() => setShowBulkModal(false)} auth={auth} t={t} showToast={showToast} zones={zones} />
+                <UserManagement show={showUserManagement} onClose={() => setShowUserManagement(false)} auth={auth} t={t} showToast={showToast} />
+            </ErrorBoundary>
 
             <main style={{ paddingBottom: '3rem' }}>
                 {!loading && zones.length > 0 && (
                     <div className="container" style={{ paddingBottom: 0 }}>
-                        <Dashboard zones={zones} auth={auth} t={t} />
+                        <ErrorBoundary t={t}>
+                            <Dashboard zones={zones} auth={auth} t={t} />
+                        </ErrorBoundary>
                     </div>
                 )}
                 {isLocalMode && auth.mode === 'server' ? (
                     /* === LOCAL MODE UI === */
                     selectedZone ? (
-                        <ZoneDetail
-                            zone={selectedZone}
-                            zones={zones}
-                            onSwitchZone={(z) => selectZone(z, auth)}
-                            onRefreshZones={() => fetchZones(auth)}
-                            zonesLoading={loading}
-                            auth={auth}
-                            onBack={() => { }}
-                            t={t}
-                            showToast={showToast}
-                            onAddAccount={null}
-                            onAddSession={() => setShowAddSession(true)}
-                            onToggleZoneStorage={handleToggleZoneStorage}
-                            zoneStorageLoading={zoneStorageLoading}
-                        />
+                        <ErrorBoundary t={t}>
+                            <ZoneDetail
+                                ref={zoneDetailRef}
+                                zone={selectedZone}
+                                zones={zones}
+                                onSwitchZone={(z) => selectZone(z, auth)}
+                                onRefreshZones={() => fetchZones(auth)}
+                                zonesLoading={loading}
+                                auth={auth}
+                                onBack={() => { }}
+                                t={t}
+                                showToast={showToast}
+                                onAddAccount={null}
+                                onAddSession={() => setShowAddSession(true)}
+                                onToggleZoneStorage={handleToggleZoneStorage}
+                                zoneStorageLoading={zoneStorageLoading}
+                            />
+                        </ErrorBoundary>
                     ) : (
                         <div className="container" style={{ marginTop: '2rem', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
                             {loading ? (
@@ -1236,21 +1422,24 @@ const App = () => {
                     )
                 ) : selectedZone ? (
                     /* === SERVER/CLIENT MODE WITH ZONE SELECTED === */
-                    <ZoneDetail
-                        zone={selectedZone}
-                        zones={zones}
-                        onSwitchZone={(z) => selectZone(z, auth)}
-                        onRefreshZones={() => fetchZones(auth)}
-                        zonesLoading={loading}
-                        auth={auth}
-                        onBack={() => { }}
-                        t={t}
-                        showToast={showToast}
-                        onAddAccount={auth.mode === 'server' ? () => setShowAddAccount(true) : null}
-                        onAddSession={() => setShowAddSession(true)}
-                        onToggleZoneStorage={auth.mode === 'server' ? handleToggleZoneStorage : null}
-                        zoneStorageLoading={zoneStorageLoading}
-                    />
+                    <ErrorBoundary t={t}>
+                        <ZoneDetail
+                            ref={zoneDetailRef}
+                            zone={selectedZone}
+                            zones={zones}
+                            onSwitchZone={(z) => selectZone(z, auth)}
+                            onRefreshZones={() => fetchZones(auth)}
+                            zonesLoading={loading}
+                            auth={auth}
+                            onBack={() => { }}
+                            t={t}
+                            showToast={showToast}
+                            onAddAccount={auth.mode === 'server' ? () => setShowAddAccount(true) : null}
+                            onAddSession={() => setShowAddSession(true)}
+                            onToggleZoneStorage={auth.mode === 'server' ? handleToggleZoneStorage : null}
+                            zoneStorageLoading={zoneStorageLoading}
+                        />
+                    </ErrorBoundary>
                 ) : (
                     /* === SERVER/CLIENT MODE NO ZONES === */
                     <div className="container" style={{ textAlign: 'center', marginTop: '4rem', color: 'var(--text-muted)' }}>

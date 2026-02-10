@@ -1,23 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Trash2, RefreshCw, X, AlertCircle } from 'lucide-react';
-import { getAuthHeaders } from '../utils/auth.ts';
+import { ApiClient, ApiError } from '../utils/api.js';
 
 const ScheduledChangesModal = ({ show, onClose, auth, t, showToast }) => {
     const [changes, setChanges] = useState([]);
     const [loading, setLoading] = useState(false);
+    const authRef = useRef(auth);
+    authRef.current = auth;
+
+    const apiRef = useRef(null);
+    if (!apiRef.current) {
+        apiRef.current = new ApiClient(() => authRef.current);
+    }
 
     const fetchChanges = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/scheduled-changes', {
-                headers: getAuthHeaders(auth)
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setChanges(data.changes || []);
-            }
+            const data = await apiRef.current.get('/api/scheduled-changes');
+            setChanges(data.changes || []);
         } catch (err) {
-            console.error('Failed to fetch scheduled changes:', err);
+            if (err instanceof ApiError) {
+                console.error(`Failed to fetch scheduled changes (${err.status}):`, err.message);
+            } else {
+                console.error('Failed to fetch scheduled changes:', err);
+            }
         }
         setLoading(false);
     };
@@ -30,20 +36,15 @@ const ScheduledChangesModal = ({ show, onClose, auth, t, showToast }) => {
 
     const handleCancel = async (id) => {
         try {
-            const res = await fetch(`/api/scheduled-changes?id=${id}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders(auth, true),
-                body: JSON.stringify({})
-            });
-            if (res.ok) {
-                showToast(t('scheduleCancelled'));
-                setChanges(prev => prev.filter(c => c.id !== id));
-            } else {
-                const data = await res.json().catch(() => ({}));
-                showToast(data.error || t('errorOccurred'), 'error');
-            }
+            await apiRef.current.del(`/api/scheduled-changes?id=${id}`);
+            showToast(t('scheduleCancelled'));
+            setChanges(prev => prev.filter(c => c.id !== id));
         } catch (err) {
-            showToast(t('errorOccurred'), 'error');
+            if (err instanceof ApiError) {
+                showToast(err.message || t('errorOccurred'), 'error');
+            } else {
+                showToast(t('errorOccurred'), 'error');
+            }
         }
     };
 

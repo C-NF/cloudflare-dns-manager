@@ -10,6 +10,16 @@ function isNonJsonEndpoint(pathname) {
     return NON_JSON_ENDPOINTS.some(re => re.test(pathname));
 }
 
+// Add security headers to a response
+function withSecurityHeaders(headers) {
+    headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.cloudflare.com; font-src 'self'");
+    headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('X-Frame-Options', 'DENY');
+    headers.set('X-XSS-Protection', '0');
+    headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+}
+
 // Add CORS and security headers to a response
 function withCorsHeaders(response, origin) {
     const headers = new Headers(response.headers);
@@ -18,6 +28,7 @@ function withCorsHeaders(response, origin) {
         headers.set('Access-Control-Allow-Credentials', 'true');
         headers.set('Vary', 'Origin');
     }
+    withSecurityHeaders(headers);
     return new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
@@ -77,7 +88,7 @@ export async function onRequest(context) {
     // Skip auth for public APIs
     if (url.pathname === '/api/login' || url.pathname === '/api/setup-account' || url.pathname === '/api/register' || url.pathname === '/api/public-settings'
         || url.pathname === '/api/passkey/login-options' || url.pathname === '/api/passkey/login-verify'
-        || url.pathname === '/api/refresh' || url.pathname === '/api/verify-totp') {
+        || url.pathname === '/api/refresh' || url.pathname === '/api/verify-totp' || url.pathname === '/api/health') {
         const response = await next();
         return withCorsHeaders(response, origin);
     }

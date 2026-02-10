@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Globe, Layers, User, Clock, Activity } from 'lucide-react';
-import { getAuthHeaders } from '../utils/auth.ts';
+import { ApiClient, ApiError } from '../utils/api.js';
 
 const Dashboard = ({ zones, auth, t }) => {
     const [auditLog, setAuditLog] = useState([]);
     const [auditLoading, setAuditLoading] = useState(false);
+    const authRef = useRef(auth);
+    authRef.current = auth;
+
+    const apiRef = useRef(null);
+    if (!apiRef.current) {
+        apiRef.current = new ApiClient(() => authRef.current);
+    }
 
     const zoneCount = zones.length;
     const accountCount = (() => {
@@ -23,18 +30,20 @@ const Dashboard = ({ zones, auth, t }) => {
 
     const lastLogin = new Date().toLocaleString();
 
-    // Fetch recent audit log entries for admin users
+    // Fetch recent audit log entries for admin users (using ApiClient)
     useEffect(() => {
         if (auth.mode === 'server' && auth.role === 'admin') {
             setAuditLoading(true);
-            fetch('/api/admin/audit-log?limit=5', {
-                headers: getAuthHeaders(auth)
-            })
-                .then(res => res.ok ? res.json() : { entries: [] })
+            apiRef.current.get('/api/admin/audit-log?limit=5')
                 .then(data => {
                     setAuditLog(data.entries || data.logs || []);
                 })
-                .catch(() => setAuditLog([]))
+                .catch((err) => {
+                    if (err instanceof ApiError) {
+                        console.error(`Audit log fetch failed (${err.status}):`, err.message);
+                    }
+                    setAuditLog([]);
+                })
                 .finally(() => setAuditLoading(false));
         }
     }, [auth.mode, auth.role, auth.token]);
