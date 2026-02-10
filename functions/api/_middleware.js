@@ -142,8 +142,8 @@ export async function onRequest(context) {
                 }
             }
 
-            // Admin routes, settings, account management, passkey management, scheduled changes, and logout don't need a CF token
-            if (url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/account/') || url.pathname.startsWith('/api/passkey/') || url.pathname === '/api/logout' || url.pathname === '/api/scheduled-changes' || url.pathname === '/api/run-scheduled') {
+            // Admin routes, settings, account management, passkey management, scheduled changes, monitors, and logout don't need a CF token
+            if (url.pathname.startsWith('/api/admin/') || url.pathname.startsWith('/api/account/') || url.pathname.startsWith('/api/passkey/') || url.pathname === '/api/logout' || url.pathname === '/api/scheduled-changes' || url.pathname === '/api/run-scheduled' || url.pathname === '/api/monitors' || url.pathname === '/api/run-monitors') {
                 const response = await next();
                 return withCorsHeaders(response, origin);
             }

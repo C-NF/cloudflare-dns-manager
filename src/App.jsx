@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
-import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers, Keyboard, WifiOff } from 'lucide-react';
+import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers, Keyboard, WifiOff, Activity } from 'lucide-react';
 import useTranslate from './hooks/useTranslate.ts';
 import { getAuthHeaders } from './utils/auth.ts';
 import SecurityBadges from './components/SecurityBadges.jsx';
@@ -16,6 +16,7 @@ const BulkOperationsModal = React.lazy(() => import('./components/BulkOperations
 const UserManagement = React.lazy(() => import('./components/UserManagement.jsx'));
 const Dashboard = React.lazy(() => import('./components/Dashboard.jsx'));
 const OnboardingTour = React.lazy(() => import('./components/OnboardingTour.jsx'));
+const MonitorsModal = React.lazy(() => import('./components/MonitorsModal.jsx'));
 
 const App = () => {
     const { t, lang, changeLang, toggleLang } = useTranslate();
@@ -56,6 +57,8 @@ const App = () => {
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [showUserManagement, setShowUserManagement] = useState(false);
     const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+    const [showMonitorsModal, setShowMonitorsModal] = useState(false);
+    const [failedMonitorCount, setFailedMonitorCount] = useState(0);
     const zoneDetailRef = useRef(null);
     const searchInputRef = useRef(null);
 
@@ -182,6 +185,7 @@ const App = () => {
 
             if (e.key === 'Escape') {
                 if (showShortcutsHelp) { setShowShortcutsHelp(false); return; }
+                if (showMonitorsModal) { setShowMonitorsModal(false); return; }
                 if (showAddAccount) { setShowAddAccount(false); return; }
                 if (showAddSession) { setShowAddSession(false); return; }
                 if (showChangePassword) { setShowChangePassword(false); return; }
@@ -215,7 +219,7 @@ const App = () => {
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [showShortcutsHelp, showAddAccount, showAddSession, showChangePassword, showPasskeyModal, showTotpModal, showBulkModal, showUserManagement, showAccountSelector, searchResults, selectedZone]);
+    }, [showShortcutsHelp, showMonitorsModal, showAddAccount, showAddSession, showChangePassword, showPasskeyModal, showTotpModal, showBulkModal, showUserManagement, showAccountSelector, searchResults, selectedZone]);
 
     // Periodic token refresh (every 12 minutes) for server mode
     useEffect(() => {
@@ -250,6 +254,31 @@ const App = () => {
             refreshAbortController.current = null;
         };
     }, [auth?.refreshToken, auth?.mode]);
+
+    // Fetch failed monitor count for badge (server mode only)
+    useEffect(() => {
+        if (!auth || auth.mode !== 'server') {
+            setFailedMonitorCount(0);
+            return;
+        }
+        const fetchMonitorCount = async () => {
+            try {
+                const res = await fetch('/api/monitors', {
+                    headers: { 'Authorization': `Bearer ${auth.token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const monitors = data.monitors || [];
+                    setFailedMonitorCount(monitors.filter(m => m.lastStatus === 'fail').length);
+                }
+            } catch {
+                // ignore
+            }
+        };
+        fetchMonitorCount();
+        const interval = setInterval(fetchMonitorCount, 60000);
+        return () => clearInterval(interval);
+    }, [auth?.token, auth?.mode]);
 
     const selectZone = (zone, authData) => {
         const sessions = authData.sessions || [];
@@ -1055,6 +1084,31 @@ const App = () => {
                         </div>
                     )}
 
+                    {auth.mode === 'server' && (
+                        <button
+                            onClick={() => setShowMonitorsModal(true)}
+                            style={{ border: 'none', background: 'transparent', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px', color: 'var(--text-muted)', borderRadius: '8px', transition: 'all 0.2s', position: 'relative' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,0,0,0.05)'; e.currentTarget.style.color = 'var(--primary)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                            title={t('monitors')}
+                            aria-label={t('monitors')}
+                        >
+                            <Activity size={18} />
+                            {failedMonitorCount > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '2px', right: '0px',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '0.55rem', fontWeight: 700, minWidth: '14px', height: '14px',
+                                    padding: '0 3px', borderRadius: '7px',
+                                    background: 'var(--error)', color: '#fff',
+                                    lineHeight: 1
+                                }}>
+                                    {failedMonitorCount}
+                                </span>
+                            )}
+                        </button>
+                    )}
+
                     {auth.mode === 'server' && !isLocalMode && (
                         <button
                             onClick={() => setShowBulkModal(true)}
@@ -1266,6 +1320,7 @@ const App = () => {
                 <PasskeyModal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} auth={auth} t={t} showToast={showToast} />
                 <TotpModal show={showTotpModal} onClose={() => setShowTotpModal(false)} auth={auth} t={t} showToast={showToast} />
                 <BulkOperationsModal show={showBulkModal} onClose={() => setShowBulkModal(false)} auth={auth} t={t} showToast={showToast} zones={zones} />
+                <MonitorsModal show={showMonitorsModal} onClose={() => setShowMonitorsModal(false)} auth={auth} t={t} showToast={showToast} zones={zones} />
                 <UserManagement show={showUserManagement} onClose={() => setShowUserManagement(false)} auth={auth} t={t} showToast={showToast} />
             </ErrorBoundary>
 

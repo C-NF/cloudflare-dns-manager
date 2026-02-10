@@ -796,3 +796,114 @@ button.unstyled {
         max-width: unset;
     }
 }
+
+/* Inline Edit */
+.inline-edit-cell {
+    position: relative;
+    cursor: default;
+}
+
+.inline-edit-cell[title] {
+    cursor: pointer;
+}
+
+.inline-edit-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.inline-edit-wrapper input {
+    width: 100%;
+    min-width: 80px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8125rem;
+    border: 2px solid var(--primary);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--text);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(243, 128, 32, 0.15);
+    transition: box-shadow 0.15s;
+}
+
+.inline-edit-wrapper input:focus {
+    box-shadow: 0 0 0 3px rgba(243, 128, 32, 0.25);
+}
+
+.inline-edit-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.inline-edit-actions button {
+    padding: 2px 4px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+
+.inline-edit-actions button:hover {
+    background: var(--hover-bg);
+}
+
+.inline-edit-actions button.inline-save {
+    color: var(--success);
+}
+
+.inline-edit-actions button.inline-cancel {
+    color: var(--error);
+}
+
+/* Drag and Drop Reorder */
+.drag-handle {
+    cursor: grab;
+    padding: 4px 2px;
+    color: var(--text-muted);
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.drag-handle:hover {
+    opacity: 1;
+    color: var(--primary);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+tr.dragging {
+    opacity: 0.4;
+    background: var(--hover-bg);
+}
+
+tr.drag-over-top {
+    border-top: 2px solid var(--primary) !important;
+}
+
+tr.drag-over-bottom {
+    border-bottom: 2px solid var(--primary) !important;
+}
+
+tr.drag-over {
+    background: rgba(243, 128, 32, 0.06);
+}
+
+tr[draggable="true"] {
+    transition: opacity 0.15s, background 0.15s;
+}
+
+tr[draggable="true"]:hover .drag-handle {
+    opacity: 0.8;
+}

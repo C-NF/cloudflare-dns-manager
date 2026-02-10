@@ -294,6 +294,36 @@ const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zone
         setShowDNSModal(true);
     };
 
+    const handleUpdatePriority = async (updatedRecords) => {
+        // Optimistically update local state
+        const updatedMap = new Map(updatedRecords.map(r => [r.id, r]));
+        setRecords(prev => prev.map(r => updatedMap.has(r.id) ? { ...r, priority: updatedMap.get(r.id).priority } : r));
+
+        // Persist each priority change via API
+        try {
+            const results = await Promise.all(
+                updatedRecords.map(record =>
+                    fetch(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
+                        method: 'PATCH',
+                        headers: getHeaders(true),
+                        body: JSON.stringify({ priority: record.priority })
+                    })
+                )
+            );
+            const allOk = results.every(r => r.ok);
+            if (allOk) {
+                showToast(t('priorityUpdated'));
+                fetchDNS();
+            } else {
+                showToast(t('priorityUpdateFailed'), 'error');
+                fetchDNS();
+            }
+        } catch (e) {
+            showToast(t('priorityUpdateFailed'), 'error');
+            fetchDNS();
+        }
+    };
+
     const filteredRecords = records.filter(r => {
         const term = searchTerm.toLowerCase();
         return r.name.toLowerCase().includes(term) ||
@@ -615,6 +645,7 @@ const ZoneDetail = forwardRef(({ zone, zones, onSwitchZone, onRefreshZones, zone
                             onOpenEditRecord={startEdit}
                             onOpenBulkImport={() => setShowBulkImportModal(true)}
                             onShowHistory={() => setShowHistory(true)}
+                            onUpdatePriority={handleUpdatePriority}
                             getHeaders={getHeaders}
                             t={t}
                             showToast={showToast}

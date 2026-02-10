@@ -1,7 +1,9 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { Edit2, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import { Edit2, Trash2, ChevronDown, ChevronRight, Check, X, GripVertical } from 'lucide-react';
 
 const GROUP_BY_KEY = 'dns_group_by';
+
+const DRAGGABLE_TYPES = ['MX', 'SRV'];
 
 const DnsRecordsTab = ({
     zone,
@@ -18,6 +20,7 @@ const DnsRecordsTab = ({
     onOpenEditRecord,
     onOpenBulkImport,
     onShowHistory,
+    onUpdatePriority,
     getHeaders,
     t,
     showToast,
@@ -28,6 +31,24 @@ const DnsRecordsTab = ({
     const [groupBy, setGroupBy] = useState(() => localStorage.getItem(GROUP_BY_KEY) || 'none');
     const [collapsedGroups, setCollapsedGroups] = useState(new Set());
     const fileInputRef = useRef(null);
+
+    // Inline editing state
+    const [editingCell, setEditingCell] = useState(null); // { id, field }
+    const [editValue, setEditValue] = useState('');
+    const [inlineSaving, setInlineSaving] = useState(false);
+    const inlineInputRef = useRef(null);
+
+    // Drag and drop state
+    const [draggedRecord, setDraggedRecord] = useState(null);
+    const [dragOverRecord, setDragOverRecord] = useState(null);
+
+    // Focus input when inline editing starts
+    useEffect(() => {
+        if (editingCell && inlineInputRef.current) {
+            inlineInputRef.current.focus();
+            inlineInputRef.current.select();
+        }
+    }, [editingCell]);
 
     const handleGroupByChange = (value) => {
         setGroupBy(value);
@@ -231,15 +252,260 @@ const DnsRecordsTab = ({
         return `${key} (${count})`;
     };
 
-    const renderDesktopRow = (record) => (
-        <tr key={record.id}>
+    // ─── Inline Editing ──────────────────────────────────────────
+
+    const startInlineEdit = useCallback((record, field) => {
+        if (inlineSaving) return;
+        const value = field === 'ttl' ? (record.ttl === 1 ? '' : String(record.ttl)) : record[field];
+        setEditingCell({ id: record.id, field });
+        setEditValue(value || '');
+    }, [inlineSaving]);
+
+    const cancelInlineEdit = useCallback(() => {
+        setEditingCell(null);
+        setEditValue('');
+    }, []);
+
+    const saveInlineEdit = useCallback(async (record) => {
+        if (!editingCell || inlineSaving) return;
+
+        const { field } = editingCell;
+        let newValue = editValue;
+
+        // Validate
+        if (field === 'content' && !newValue.trim()) {
+            cancelInlineEdit();
+            return;
+        }
+        if (field === 'ttl') {
+            if (newValue === '' || newValue === '0') {
+                newValue = 1; // auto
+            } else {
+                newValue = parseInt(newValue, 10);
+                if (isNaN(newValue) || newValue < 1) {
+                    cancelInlineEdit();
+                    return;
+                }
+            }
+        }
+
+        // No change
+        if (field === 'ttl' && newValue === record.ttl) {
+            cancelInlineEdit();
+            return;
+        }
+        if (field === 'content' && newValue === record.content) {
+            cancelInlineEdit();
+            return;
+        }
+
+        setInlineSaving(true);
+        try {
+            const payload = {
+                type: record.type,
+                name: record.name,
+                content: field === 'content' ? newValue : record.content,
+                ttl: field === 'ttl' ? newValue : record.ttl,
+                proxied: record.proxied
+            };
+            if (record.priority !== undefined) {
+                payload.priority = record.priority;
+            }
+
+            const res = await fetch(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
+                method: 'PATCH',
+                headers: getHeaders(true),
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                showToast(t('updateSuccess'));
+                fetchDNS();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                const isFallbackError = data.errors?.some(e => e.code === 1040);
+                showToast(isFallbackError ? t('fallbackError') : (data.errors?.[0]?.message || data.message || t('errorOccurred')), 'error');
+            }
+        } catch (e) {
+            showToast(t('errorOccurred'), 'error');
+        }
+        setInlineSaving(false);
+        cancelInlineEdit();
+    }, [editingCell, editValue, inlineSaving, zone?.id, getHeaders, fetchDNS, showToast, t, cancelInlineEdit]);
+
+    const handleInlineKeyDown = useCallback((e, record) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveInlineEdit(record);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelInlineEdit();
+        }
+    }, [saveInlineEdit, cancelInlineEdit]);
+
+    const renderInlineEditCell = (record, field, displayValue) => {
+        const isEditing = editingCell && editingCell.id === record.id && editingCell.field === field;
+
+        if (isEditing) {
+            return (
+                <div className="inline-edit-wrapper">
+                    <input
+                        ref={inlineInputRef}
+                        type={field === 'ttl' ? 'number' : 'text'}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => handleInlineKeyDown(e, record)}
+                        onBlur={() => {
+                            // Delay to allow button clicks to register
+                            setTimeout(() => {
+                                if (editingCell && editingCell.id === record.id) {
+                                    cancelInlineEdit();
+                                }
+                            }, 150);
+                        }}
+                        disabled={inlineSaving}
+                        min={field === 'ttl' ? '0' : undefined}
+                        placeholder={field === 'ttl' ? t('ttlAuto') : ''}
+                    />
+                    <div className="inline-edit-actions">
+                        <button
+                            className="inline-save"
+                            onMouseDown={(e) => { e.preventDefault(); saveInlineEdit(record); }}
+                            title={t('inlineEditSave')}
+                            disabled={inlineSaving}
+                        >
+                            <Check size={14} />
+                        </button>
+                        <button
+                            className="inline-cancel"
+                            onMouseDown={(e) => { e.preventDefault(); cancelInlineEdit(); }}
+                            title={t('inlineEditCancel')}
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        return displayValue;
+    };
+
+    // ─── Drag and Drop ───────────────────────────────────────────
+
+    const isDraggableGroup = useCallback((groupKey) => {
+        return groupBy === 'type' && DRAGGABLE_TYPES.includes(groupKey);
+    }, [groupBy]);
+
+    const handleDragStart = useCallback((e, record) => {
+        setDraggedRecord(record);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', record.id);
+        // Timeout to allow the drag image to render before changing opacity
+        setTimeout(() => {
+            const row = e.target.closest('tr');
+            if (row) row.classList.add('dragging');
+        }, 0);
+    }, []);
+
+    const handleDragEnd = useCallback((e) => {
+        const row = e.target.closest('tr');
+        if (row) row.classList.remove('dragging');
+        setDraggedRecord(null);
+        setDragOverRecord(null);
+        // Clean up all drag-over classes
+        document.querySelectorAll('.drag-over, .drag-over-top, .drag-over-bottom').forEach(el => {
+            el.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
+        });
+    }, []);
+
+    const handleDragOver = useCallback((e, record) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (draggedRecord && draggedRecord.id !== record.id) {
+            setDragOverRecord(record);
+            // Add visual feedback
+            const row = e.target.closest('tr');
+            if (row) {
+                document.querySelectorAll('.drag-over, .drag-over-top, .drag-over-bottom').forEach(el => {
+                    el.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
+                });
+                row.classList.add('drag-over');
+            }
+        }
+    }, [draggedRecord]);
+
+    const handleDragLeave = useCallback((e) => {
+        const row = e.target.closest('tr');
+        if (row) {
+            row.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
+        }
+    }, []);
+
+    const handleDrop = useCallback((e, targetRecord, groupRecords) => {
+        e.preventDefault();
+        document.querySelectorAll('.drag-over, .drag-over-top, .drag-over-bottom').forEach(el => {
+            el.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
+        });
+
+        if (!draggedRecord || draggedRecord.id === targetRecord.id) {
+            setDraggedRecord(null);
+            setDragOverRecord(null);
+            return;
+        }
+
+        // Reorder the records
+        const reordered = [...groupRecords];
+        const dragIndex = reordered.findIndex(r => r.id === draggedRecord.id);
+        const targetIndex = reordered.findIndex(r => r.id === targetRecord.id);
+
+        if (dragIndex === -1 || targetIndex === -1) return;
+
+        // Remove dragged item and insert at target position
+        const [moved] = reordered.splice(dragIndex, 1);
+        reordered.splice(targetIndex, 0, moved);
+
+        // Assign sequential priorities: 10, 20, 30...
+        const updates = reordered.map((record, index) => ({
+            ...record,
+            priority: (index + 1) * 10
+        }));
+
+        // Call parent callback to persist
+        if (onUpdatePriority) {
+            onUpdatePriority(updates);
+        }
+
+        setDraggedRecord(null);
+        setDragOverRecord(null);
+    }, [draggedRecord, onUpdatePriority]);
+
+    // ─── Row Renderers ───────────────────────────────────────────
+
+    const renderDesktopRow = (record, { draggable = false, groupRecords = null } = {}) => (
+        <tr
+            key={record.id}
+            draggable={draggable ? 'true' : undefined}
+            onDragStart={draggable ? (e) => handleDragStart(e, record) : undefined}
+            onDragEnd={draggable ? handleDragEnd : undefined}
+            onDragOver={draggable ? (e) => handleDragOver(e, record) : undefined}
+            onDragLeave={draggable ? handleDragLeave : undefined}
+            onDrop={draggable ? (e) => handleDrop(e, record, groupRecords) : undefined}
+        >
             <td>
-                <input
-                    type="checkbox"
-                    checked={selectedRecords.has(record.id)}
-                    onChange={() => toggleSelect(record.id)}
-                    className="record-checkbox"
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {draggable && (
+                        <span className="drag-handle" title={t('dragHandle')}>
+                            <GripVertical size={14} />
+                        </span>
+                    )}
+                    <input
+                        type="checkbox"
+                        checked={selectedRecords.has(record.id)}
+                        onChange={() => toggleSelect(record.id)}
+                        className="record-checkbox"
+                    />
+                </div>
             </td>
             <td>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', alignItems: 'center' }}>
@@ -253,8 +519,22 @@ const DnsRecordsTab = ({
                 <div style={{ fontWeight: 600 }}>{record.name}</div>
                 {record.comment && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{record.comment}</div>}
             </td>
-            <td className="truncate-mobile" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>{record.content}</td>
-            <td style={{ fontSize: '0.8125rem' }}>{record.ttl === 1 ? t('ttlAuto') : record.ttl}</td>
+            <td
+                className="inline-edit-cell truncate-mobile"
+                style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}
+                onDoubleClick={() => startInlineEdit(record, 'content')}
+                title={t('inlineEditHint')}
+            >
+                {renderInlineEditCell(record, 'content', record.content)}
+            </td>
+            <td
+                className="inline-edit-cell"
+                style={{ fontSize: '0.8125rem' }}
+                onDoubleClick={() => startInlineEdit(record, 'ttl')}
+                title={t('inlineEditHint')}
+            >
+                {renderInlineEditCell(record, 'ttl', record.ttl === 1 ? t('ttlAuto') : record.ttl)}
+            </td>
             <td>
                 {['A', 'AAAA', 'CNAME'].includes(record.type) ? (
                     <label className="toggle-switch">
@@ -344,7 +624,7 @@ const DnsRecordsTab = ({
         </div>
     );
 
-    const renderGroupHeader = (groupKey, count) => {
+    const renderGroupHeader = (groupKey, count, isDraggable) => {
         const isCollapsed = collapsedGroups.has(groupKey);
         return (
             <div
@@ -371,6 +651,11 @@ const DnsRecordsTab = ({
                 <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text)' }}>
                     {formatGroupLabel(groupKey, count)}
                 </span>
+                {isDraggable && !isCollapsed && (
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 400, marginLeft: '4px' }}>
+                        {t('dragReorderHint')}
+                    </span>
+                )}
             </div>
         );
     };
@@ -424,44 +709,47 @@ const DnsRecordsTab = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredRecords.map(renderDesktopRow)}
+                        {filteredRecords.map(record => renderDesktopRow(record))}
                     </tbody>
                 </table>
             ) : (
                 <div className="desktop-only">
-                    {groupedRecords && groupedRecords.map(([groupKey, groupRecords]) => (
-                        <div key={groupKey}>
-                            {renderGroupHeader(groupKey, groupRecords.length)}
-                            {!collapsedGroups.has(groupKey) && (
-                                <table className="data-table" style={{ marginBottom: '0.5rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ width: '40px' }}>
-                                                <input type="checkbox" className="record-checkbox" onChange={() => {
-                                                    const ids = groupRecords.map(r => r.id);
-                                                    const allSelected = ids.every(id => selectedRecords.has(id));
-                                                    setSelectedRecords(prev => {
-                                                        const next = new Set(prev);
-                                                        ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
-                                                        return next;
-                                                    });
-                                                }} checked={groupRecords.length > 0 && groupRecords.every(r => selectedRecords.has(r.id))} />
-                                            </th>
-                                            <th>{t('type')}</th>
-                                            <th>{t('name')} / {t('comment')}</th>
-                                            <th>{t('content')}</th>
-                                            <th>{t('ttl')}</th>
-                                            <th>{t('proxied')}</th>
-                                            <th>{t('actions')}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {groupRecords.map(renderDesktopRow)}
-                                    </tbody>
-                                </table>
-                            )}
-                        </div>
-                    ))}
+                    {groupedRecords && groupedRecords.map(([groupKey, groupRecords]) => {
+                        const draggable = isDraggableGroup(groupKey);
+                        return (
+                            <div key={groupKey}>
+                                {renderGroupHeader(groupKey, groupRecords.length, draggable)}
+                                {!collapsedGroups.has(groupKey) && (
+                                    <table className="data-table" style={{ marginBottom: '0.5rem' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ width: '40px' }}>
+                                                    <input type="checkbox" className="record-checkbox" onChange={() => {
+                                                        const ids = groupRecords.map(r => r.id);
+                                                        const allSelected = ids.every(id => selectedRecords.has(id));
+                                                        setSelectedRecords(prev => {
+                                                            const next = new Set(prev);
+                                                            ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
+                                                            return next;
+                                                        });
+                                                    }} checked={groupRecords.length > 0 && groupRecords.every(r => selectedRecords.has(r.id))} />
+                                                </th>
+                                                <th>{t('type')}</th>
+                                                <th>{t('name')} / {t('comment')}</th>
+                                                <th>{t('content')}</th>
+                                                <th>{t('ttl')}</th>
+                                                <th>{t('proxied')}</th>
+                                                <th>{t('actions')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {groupRecords.map(record => renderDesktopRow(record, { draggable, groupRecords }))}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 
@@ -474,7 +762,7 @@ const DnsRecordsTab = ({
                 <div className="mobile-only">
                     {groupedRecords && groupedRecords.map(([groupKey, groupRecords]) => (
                         <div key={groupKey}>
-                            {renderGroupHeader(groupKey, groupRecords.length)}
+                            {renderGroupHeader(groupKey, groupRecords.length, isDraggableGroup(groupKey))}
                             {!collapsedGroups.has(groupKey) && groupRecords.map(renderMobileCard)}
                         </div>
                     ))}
