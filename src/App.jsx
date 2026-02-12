@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
-import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers, Keyboard, WifiOff, Activity, Menu, BarChart3, Database } from 'lucide-react';
+import { Server, User, Shield, Key, LogOut, Plus, Trash2, RefreshCw, Zap, Languages, CheckCircle, AlertCircle, X, ChevronDown, Settings, Save, Fingerprint, Moon, Sun, Search, Upload, Globe, Layers, Keyboard, WifiOff, Activity, Menu, BarChart3, Database, FileText, ShieldAlert, Wifi, Eye, Code, ArrowRightLeft, BarChart2, Repeat, Mail, FileWarning } from 'lucide-react';
 import useTranslate from './hooks/useTranslate.ts';
 import { getAuthHeaders } from './utils/auth.ts';
 import SecurityBadges from './components/SecurityBadges.jsx';
@@ -1462,6 +1462,15 @@ const App = () => {
                                     <Layers size={16} /> {t('saasHostnames')}
                                 </button>
                                 <button
+                                    className={`sidebar-nav-item${activeTab === 'dnssettings' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('dnssettings'); setSidebarOpen(false); }}
+                                >
+                                    <Settings size={16} /> {t('dnsSettingsTab')}
+                                </button>
+                                {/* Performance */}
+                                <div className="sidebar-separator" />
+                                <span className="sidebar-section-label">{t('sidebarPerformance') || 'Performance'}</span>
+                                <button
                                     className={`sidebar-nav-item${activeTab === 'cache' ? ' active' : ''}`}
                                     onClick={() => { setActiveTab('cache'); setSidebarOpen(false); }}
                                 >
@@ -1474,10 +1483,92 @@ const App = () => {
                                     <Zap size={16} /> {t('speedTab')}
                                 </button>
                                 <button
+                                    className={`sidebar-nav-item${activeTab === 'network' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('network'); setSidebarOpen(false); }}
+                                >
+                                    <Wifi size={16} /> {t('networkTab')}
+                                </button>
+
+                                {/* Security */}
+                                <div className="sidebar-separator" />
+                                <span className="sidebar-section-label">{t('sidebarSecurity') || 'Security'}</span>
+                                <button
                                     className={`sidebar-nav-item${activeTab === 'ssl' ? ' active' : ''}`}
                                     onClick={() => { setActiveTab('ssl'); setSidebarOpen(false); }}
                                 >
                                     <Shield size={16} /> {t('sslTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'security' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('security'); setSidebarOpen(false); }}
+                                >
+                                    <ShieldAlert size={16} /> {t('securityTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'scrapeshield' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('scrapeshield'); setSidebarOpen(false); }}
+                                >
+                                    <Eye size={16} /> {t('scrapeShieldTab')}
+                                </button>
+
+                                {/* Configuration */}
+                                <div className="sidebar-separator" />
+                                <span className="sidebar-section-label">{t('sidebarConfig') || 'Configuration'}</span>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'pagerules' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('pagerules'); setSidebarOpen(false); }}
+                                >
+                                    <FileText size={16} /> {t('pageRulesTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'workers' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('workers'); setSidebarOpen(false); }}
+                                >
+                                    <Code size={16} /> {t('workersTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'rules' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('rules'); setSidebarOpen(false); }}
+                                >
+                                    <ArrowRightLeft size={16} /> {t('rulesTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'transform' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('transform'); setSidebarOpen(false); }}
+                                >
+                                    <Repeat size={16} /> {t('transformTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'origin' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('origin'); setSidebarOpen(false); }}
+                                >
+                                    <Server size={16} /> {t('originTab')}
+                                </button>
+
+                                {/* Email & Pages */}
+                                <div className="sidebar-separator" />
+                                <span className="sidebar-section-label">{t('sidebarEmail') || 'Email & Pages'}</span>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'email' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('email'); setSidebarOpen(false); }}
+                                >
+                                    <Mail size={16} /> {t('emailTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'custompages' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('custompages'); setSidebarOpen(false); }}
+                                >
+                                    <FileWarning size={16} /> {t('customPagesTab')}
+                                </button>
+
+                                {/* Monitoring */}
+                                <div className="sidebar-separator" />
+                                <span className="sidebar-section-label">{t('sidebarMonitoring') || 'Monitoring'}</span>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'analytics' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('analytics'); setSidebarOpen(false); }}
+                                >
+                                    <BarChart2 size={16} /> {t('analyticsTab')}
                                 </button>
                             </>
                         )}

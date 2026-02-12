@@ -281,6 +281,17 @@
   margin: 0.375rem 0.75rem;
 }
 
+.sidebar-section-label {
+  display: block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 0.15rem 1rem 0.15rem 1rem;
+  opacity: 0.7;
+}
+
 .sidebar-footer {
   padding: 0.5rem;
   border-top: 1px solid var(--border);
@@ -323,6 +334,10 @@
   flex-direction: column;
 }
 
+.app-content > main {
+  flex: 1;
+}
+
 .app-content .container {
   max-width: 960px;
 }
@@ -356,6 +371,7 @@
   .app-content {
     width: 100%;
     min-width: 0;
+    min-height: calc(100vh - 52px);
   }
 
   /* Header: hide search on mobile */

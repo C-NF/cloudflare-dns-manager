@@ -12,6 +12,18 @@ const ScheduledChangesModal = React.lazy(() => import('./ScheduledChangesModal.j
 const CacheManagement = React.lazy(() => import('./CacheManagement.jsx'));
 const SslManagement = React.lazy(() => import('./SslManagement.jsx'));
 const SpeedOptimization = React.lazy(() => import('./SpeedOptimization.jsx'));
+const PageRules = React.lazy(() => import('./PageRules.jsx'));
+const SecuritySettings = React.lazy(() => import('./SecuritySettings.jsx'));
+const NetworkSettings = React.lazy(() => import('./NetworkSettings.jsx'));
+const ScrapeShield = React.lazy(() => import('./ScrapeShield.jsx'));
+const WorkersRoutes = React.lazy(() => import('./WorkersRoutes.jsx'));
+const RedirectRules = React.lazy(() => import('./RedirectRules.jsx'));
+const Analytics = React.lazy(() => import('./Analytics.jsx'));
+const DnsSettings = React.lazy(() => import('./DnsSettings.jsx'));
+const TransformRules = React.lazy(() => import('./TransformRules.jsx'));
+const OriginRules = React.lazy(() => import('./OriginRules.jsx'));
+const EmailRouting = React.lazy(() => import('./EmailRouting.jsx'));
+const CustomPages = React.lazy(() => import('./CustomPages.jsx'));
 
 const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones }, ref) => {
     const [records, setRecords] = useState([]);
@@ -226,7 +238,7 @@ const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggle
         if (tab === 'saas') {
             fetchHostnames();
         }
-        if (tab === 'cache' || tab === 'speed' || tab === 'ssl') {
+        if (['cache', 'speed', 'ssl', 'pagerules', 'security', 'network', 'scrapeshield', 'workers', 'rules', 'analytics', 'dnssettings', 'transform', 'origin', 'email', 'custompages'].includes(tab)) {
             setLoading(false);
         }
         fetchScheduledCount();
@@ -592,6 +604,54 @@ const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggle
                         showToast={showToast}
                         openConfirm={openConfirm}
                     />
+                </React.Suspense>
+            ) : tab === 'pagerules' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <PageRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                </React.Suspense>
+            ) : tab === 'security' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <SecuritySettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'network' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <NetworkSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'scrapeshield' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <ScrapeShield zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'workers' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <WorkersRoutes zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                </React.Suspense>
+            ) : tab === 'rules' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <RedirectRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'analytics' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <Analytics zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'dnssettings' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <DnsSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'transform' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <TransformRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'origin' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <OriginRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'email' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <EmailRouting zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                </React.Suspense>
+            ) : tab === 'custompages' ? (
+                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                    <CustomPages zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : !error && !(loading && records.length === 0 && hostnames.length === 0) ? (
             <div className="glass-card" style={{ padding: '1.25rem', overflow: 'hidden' }}>
