@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, BarChart2, AlertTriangle, Globe, Shield, Eye, Activity } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const TIME_RANGES = [
     { value: -1440, label: '24h' },
@@ -50,7 +51,7 @@ const Analytics = ({ zone, getHeaders, t, showToast }) => {
     useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
     if (loading && !data && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="analytics" />;
     }
 
     if (fetchError && !data) {
@@ -86,7 +87,7 @@ const Analytics = ({ zone, getHeaders, t, showToast }) => {
     const statusColors = { '2xx': '#22c55e', '3xx': '#3b82f6', '4xx': '#f59e0b', '5xx': '#ef4444' };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

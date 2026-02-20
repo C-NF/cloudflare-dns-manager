@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Shield, ShieldCheck, ShieldAlert, ShieldOff, ToggleLeft, ToggleRight, ChevronDown, AlertTriangle, CheckCircle } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const SslManagement = ({ zone, getHeaders, t, showToast }) => {
     const [sslMode, setSslMode] = useState(null);
@@ -144,11 +145,7 @@ const SslManagement = ({ zone, getHeaders, t, showToast }) => {
     ];
 
     if (loading && !fetchError) {
-        return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '3rem' }}>
-                <RefreshCw size={24} className="spin" style={{ color: 'var(--primary)' }} />
-            </div>
-        );
+        return <TabSkeleton variant="settings" />;
     }
 
     if (fetchError) {
@@ -180,7 +177,7 @@ const SslManagement = ({ zone, getHeaders, t, showToast }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* SSL/TLS Mode Selector */}
             <div className="glass-card" style={{ padding: '1.25rem', background: 'var(--subtle-bg)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>

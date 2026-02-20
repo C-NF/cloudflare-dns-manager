@@ -70,7 +70,7 @@ export async function onRequestPost(context) {
             const tokensJson = await kv.get(`USER_TOKENS:${username}`);
             if (tokensJson) {
                 const tokens = JSON.parse(tokensJson);
-                accounts = tokens.map(t => ({ id: t.id, name: t.name }));
+                accounts = tokens.map(t => { const tp = t.type || (t.email ? 'global_key' : 'api_token'); return { id: t.id, name: t.name, type: tp, hint: tp === 'global_key' ? (t.email || '') : (t.token ? '…' + t.token.slice(-4) : '') }; });
             }
         }
 

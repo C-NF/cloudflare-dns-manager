@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileText, Plus, Edit2, Trash2, AlertTriangle, X, Play, Pause, ChevronDown } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const ACTION_TYPES = [
     { id: 'forwarding_url', label: 'Forwarding URL', fields: ['status_code', 'url'] },
@@ -178,7 +179,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     };
 
     if (loading && rules.length === 0 && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="list" />;
     }
 
     if (fetchError && rules.length === 0) {
@@ -191,7 +192,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

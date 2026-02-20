@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Mail, Plus, Edit2, Trash2, AlertTriangle, X, ExternalLink } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const [rules, setRules] = useState([]);
@@ -116,7 +117,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     );
 
     if (loading && rules.length === 0 && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="list" />;
     }
 
     if (fetchError && rules.length === 0) {
@@ -129,7 +130,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Mail size={20} color="var(--primary)" />

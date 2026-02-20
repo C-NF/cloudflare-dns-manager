@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Wifi, AlertTriangle } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const SETTINGS_META = [
     { key: 'websockets', type: 'toggle', descKey: 'netWebsocketsDesc' },
@@ -82,7 +83,7 @@ const NetworkSettings = ({ zone, getHeaders, t, showToast }) => {
     );
 
     if (loading && !settings && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="settings" />;
     }
 
     if (fetchError && !settings) {
@@ -101,7 +102,7 @@ const NetworkSettings = ({ zone, getHeaders, t, showToast }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Wifi size={20} color="var(--primary)" />

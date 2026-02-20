@@ -571,3 +571,81 @@ body.modal-open {
 }
 
 /* Zone selector dropdown removed — replaced by sidebar */
+
+/* ============================================
+   Mobile polish for all 18 tabs
+   ============================================ */
+
+/* Security level cards: responsive grid */
+@media (max-width: 768px) {
+    .security-level-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    /* Firewall rule cards: stack expression below */
+    .firewall-rule-card {
+        flex-direction: column !important;
+    }
+
+    .firewall-rule-expression {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Analytics summary cards: 2-col */
+    .dns-analytics-summary {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+
+    /* Page Rules actions: full width rows */
+    .pagerule-actions-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Workers Routes pattern: truncate */
+    .workers-route-pattern {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Sidebar with many items: scrollable */
+    .sidebar-nav {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        max-height: calc(100vh - 200px);
+    }
+}
+
+@media (max-width: 480px) {
+    .security-level-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .dns-analytics-summary {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Workers route pattern: even more truncated */
+    .workers-route-pattern {
+        max-width: 140px;
+    }
+
+    /* Toggle setting cards: full width */
+    .glass-card[style*="display: flex"][style*="justify-content: space-between"] {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 380px) {
+    .workers-route-pattern {
+        max-width: 100px;
+    }
+
+    /* Compact padding for settings cards on very small screens */
+    .glass-card {
+        padding: 0.75rem !important;
+    }
+}

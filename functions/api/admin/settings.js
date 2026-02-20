@@ -38,7 +38,10 @@ export async function onRequestGet(context) {
     }
 
     // Otherwise list all accounts (without actual token values)
-    const accounts = tokens.map(t => ({ id: t.id, name: t.name, type: t.type || 'api_token', source: 'kv' }));
+    const accounts = tokens.map(t => {
+        const tp = t.type || (t.email ? 'global_key' : 'api_token');
+        return { id: t.id, name: t.name, type: tp, source: 'kv', hint: tp === 'global_key' ? (t.email || '') : (t.token ? '…' + t.token.slice(-4) : '') };
+    });
 
     return new Response(JSON.stringify({ accounts }), {
         headers: { 'Content-Type': 'application/json' }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Repeat, AlertTriangle, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const TransformRules = ({ zone, getHeaders, t, showToast }) => {
     const [urlRewriteRules, setUrlRewriteRules] = useState([]);
@@ -105,7 +106,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast }) => {
     );
 
     if (loading && urlRewriteRules.length === 0 && headerModRules.length === 0 && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="list" />;
     }
 
     if (fetchError && urlRewriteRules.length === 0 && headerModRules.length === 0) {
@@ -118,7 +119,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Repeat size={20} color="var(--primary)" />

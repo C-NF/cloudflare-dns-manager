@@ -70,16 +70,33 @@ export async function onRequestPost(context) {
 
     if (action === 'enable_dnssec') {
         try {
-            const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
-                method: 'POST',
-                headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+            // Try PATCH first (works if DNSSEC was previously created/disabled)
+            let res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                method: 'PATCH',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'active' })
             });
-            const data = await res.json();
+            let data = await res.json();
+            // If PATCH fails (e.g. DNSSEC never created), fall back to POST
+            if (!data.success) {
+                res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                    method: 'POST',
+                    headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                data = await res.json();
+            }
             if (data.success) {
                 await logAudit(kv, username, 'dns.dnssec_enable', `Enabled DNSSEC (zone: ${zoneId})`);
                 await fireWebhook(kv, { type: 'dns.dnssec_enable', username, detail: `Enabled DNSSEC (zone: ${zoneId})` });
             }
-            return new Response(JSON.stringify({ success: data.success, dnssec: data.result, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
+            // Re-fetch current DNSSEC state so badge always reflects truth
+            const freshRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+            });
+            const freshData = await freshRes.json();
+            const dnssecResult = freshData.success ? freshData.result : (data.result || {});
+            return new Response(JSON.stringify({ success: data.success, dnssec: dnssecResult, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
         } catch (e) {
             return new Response(JSON.stringify({ success: false, errors: [{ message: e.message }] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }
@@ -87,15 +104,31 @@ export async function onRequestPost(context) {
 
     if (action === 'disable_dnssec') {
         try {
-            const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
-                method: 'DELETE',
-                headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+            // Use PATCH to disable (more reliable than DELETE)
+            let res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                method: 'PATCH',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'disabled' })
             });
-            const data = await res.json();
+            let data = await res.json();
+            // Fall back to DELETE if PATCH doesn't work
+            if (!data.success) {
+                res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                    method: 'DELETE',
+                    headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+                });
+                data = await res.json();
+            }
             if (data.success) {
                 await logAudit(kv, username, 'dns.dnssec_disable', `Disabled DNSSEC (zone: ${zoneId})`);
             }
-            return new Response(JSON.stringify({ success: data.success, dnssec: data.result || { status: 'disabled' }, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
+            // Re-fetch to get accurate state
+            const freshRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dnssec`, {
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+            });
+            const freshData = await freshRes.json();
+            const dnssecResult = freshData.success ? freshData.result : (data.result || { status: 'disabled' });
+            return new Response(JSON.stringify({ success: data.success, dnssec: dnssecResult, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
         } catch (e) {
             return new Response(JSON.stringify({ success: false, errors: [{ message: e.message }] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }

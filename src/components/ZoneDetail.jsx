@@ -7,6 +7,7 @@ import DnsImportModal from './DnsImportModal.jsx';
 import DnsHistoryTab from './DnsHistoryTab.jsx';
 import DnsRecordsTab from './DnsRecordsTab.jsx';
 import SaasTab from './SaasTab.jsx';
+import TabSkeleton from './TabSkeleton.jsx';
 
 const ScheduledChangesModal = React.lazy(() => import('./ScheduledChangesModal.jsx'));
 const CacheManagement = React.lazy(() => import('./CacheManagement.jsx'));
@@ -24,6 +25,7 @@ const TransformRules = React.lazy(() => import('./TransformRules.jsx'));
 const OriginRules = React.lazy(() => import('./OriginRules.jsx'));
 const EmailRouting = React.lazy(() => import('./EmailRouting.jsx'));
 const CustomPages = React.lazy(() => import('./CustomPages.jsx'));
+const DnsAnalytics = React.lazy(() => import('./DnsAnalytics.jsx'));
 
 const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones }, ref) => {
     const [records, setRecords] = useState([]);
@@ -238,7 +240,7 @@ const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggle
         if (tab === 'saas') {
             fetchHostnames();
         }
-        if (['cache', 'speed', 'ssl', 'pagerules', 'security', 'network', 'scrapeshield', 'workers', 'rules', 'analytics', 'dnssettings', 'transform', 'origin', 'email', 'custompages'].includes(tab)) {
+        if (['cache', 'speed', 'ssl', 'pagerules', 'security', 'network', 'scrapeshield', 'workers', 'rules', 'analytics', 'dnsanalytics', 'dnssettings', 'transform', 'origin', 'email', 'custompages'].includes(tab)) {
             setLoading(false);
         }
         fetchScheduledCount();
@@ -546,112 +548,124 @@ const ZoneDetail = forwardRef(({ zone, auth, tab, onBack, t, showToast, onToggle
             )}
 
             {/* Error state */}
-            {error && !loading && (
-                <div className="glass-card error-state">
-                    <div className="error-state-icon" style={{
-                        background: error.type === 'permission' ? 'rgba(245, 158, 11, 0.1)' :
-                            error.type === 'auth' ? 'var(--error-bg)' :
-                            error.type === 'network' ? 'rgba(59, 130, 246, 0.1)' : 'var(--error-bg)'
-                    }}>
-                        {error.type === 'permission' ? <Shield size={28} color="#d97706" /> :
-                         error.type === 'auth' ? <Key size={28} color="var(--error)" /> :
-                         error.type === 'network' ? <WifiOff size={28} color="#2563eb" /> :
-                         <AlertCircle size={28} color="var(--error)" />}
-                    </div>
-                    <h3>{error.type === 'permission' ? t('errPermission') :
-                         error.type === 'auth' ? t('errAuth') :
-                         error.type === 'network' ? t('errNetwork') : t('errUnknown')}</h3>
-                    <p>{error.type === 'permission' ? t('errPermissionDesc') :
-                        error.type === 'auth' ? t('errAuthDesc') :
-                        error.type === 'network' ? t('errNetworkDesc') : error.message}</p>
-                    <div className="error-state-actions">
-                        <button className="btn btn-primary" onClick={() => tab === 'dns' ? fetchDNS() : fetchHostnames()}>
-                            <RefreshCw size={14} /> {t('retry')}
-                        </button>
-                        {(error.type === 'permission' || error.type === 'auth') && (
-                            <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ textDecoration: 'none' }}>
+            {error && !loading && (() => {
+                const isSaasQuotaError = tab === 'saas' && error.message && (error.message.toLowerCase().includes('no quota') || error.message.toLowerCase().includes('authentication error'));
+                return isSaasQuotaError ? (
+                    <div className="glass-card error-state">
+                        <div className="error-state-icon" style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
+                            <AlertCircle size={28} color="#d97706" />
+                        </div>
+                        <h3>{t('saasNotEnabled')}</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>{t('saasNotEnabledDesc')}</p>
+                        <div style={{ margin: '1rem 0', padding: '0.75rem 1rem', background: 'var(--bg)', borderRadius: '8px', fontSize: '0.8rem', textAlign: 'left', lineHeight: 1.7 }}>
+                            <div>{t('saasStep1')}</div>
+                            <div>{t('saasStep2')}</div>
+                            <div>{t('saasStep3')}</div>
+                        </div>
+                        <div className="error-state-actions">
+                            <button className="btn btn-primary" onClick={() => fetchHostnames()}>
+                                <RefreshCw size={14} /> {t('retry')}
+                            </button>
+                            <a href={`https://dash.cloudflare.com/${zone.account?.id || ''}/${zone.name}/ssl-tls/custom-hostnames`} target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ textDecoration: 'none' }}>
                                 {t('goToCfDashboard')}
                             </a>
-                        )}
+                        </div>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="glass-card error-state">
+                        <div className="error-state-icon" style={{
+                            background: error.type === 'permission' ? 'rgba(245, 158, 11, 0.1)' :
+                                error.type === 'auth' ? 'var(--error-bg)' :
+                                error.type === 'network' ? 'rgba(59, 130, 246, 0.1)' : 'var(--error-bg)'
+                        }}>
+                            {error.type === 'permission' ? <Shield size={28} color="#d97706" /> :
+                             error.type === 'auth' ? <Key size={28} color="var(--error)" /> :
+                             error.type === 'network' ? <WifiOff size={28} color="#2563eb" /> :
+                             <AlertCircle size={28} color="var(--error)" />}
+                        </div>
+                        <h3>{error.type === 'permission' ? t('errPermission') :
+                             error.type === 'auth' ? t('errAuth') :
+                             error.type === 'network' ? t('errNetwork') : t('errUnknown')}</h3>
+                        <p>{error.type === 'permission' ? (error.message && error.message !== 'Forbidden' ? error.message : t('errPermissionDesc')) :
+                            error.type === 'auth' ? (error.message && error.message !== 'Unauthorized' ? error.message : t('errAuthDesc')) :
+                            error.type === 'network' ? t('errNetworkDesc') : error.message}</p>
+                        <div className="error-state-actions">
+                            <button className="btn btn-primary" onClick={() => tab === 'dns' ? fetchDNS() : fetchHostnames()}>
+                                <RefreshCw size={14} /> {t('retry')}
+                            </button>
+                            {(error.type === 'permission' || error.type === 'auth') && (
+                                <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ textDecoration: 'none' }}>
+                                    {t('goToCfDashboard')}
+                                </a>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {tab === 'speed' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
-                    <SpeedOptimization
-                        zone={zone}
-                        getHeaders={getHeaders}
-                        t={t}
-                        showToast={showToast}
-                    />
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
+                    <SpeedOptimization zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'ssl' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
-                    <SslManagement
-                        zone={zone}
-                        getHeaders={getHeaders}
-                        t={t}
-                        showToast={showToast}
-                    />
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
+                    <SslManagement zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'cache' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
-                    <CacheManagement
-                        zone={zone}
-                        getHeaders={getHeaders}
-                        t={t}
-                        showToast={showToast}
-                        openConfirm={openConfirm}
-                    />
+                <React.Suspense fallback={<TabSkeleton variant="cache" />}>
+                    <CacheManagement zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'pagerules' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <PageRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'security' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
-                    <SecuritySettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
+                    <SecuritySettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={(msg, cb) => openConfirm('', msg, cb)} />
                 </React.Suspense>
             ) : tab === 'network' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
                     <NetworkSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'scrapeshield' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
                     <ScrapeShield zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'workers' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <WorkersRoutes zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'rules' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <RedirectRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'analytics' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="analytics" />}>
                     <Analytics zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'dnssettings' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="settings" />}>
                     <DnsSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'transform' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <TransformRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'origin' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <OriginRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'email' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <EmailRouting zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'custompages' ? (
-                <React.Suspense fallback={<div className="content-loader"><div className="content-loader-spinner" /><span>{t('loadingRecords')}</span></div>}>
+                <React.Suspense fallback={<TabSkeleton variant="list" />}>
                     <CustomPages zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                </React.Suspense>
+            ) : tab === 'dnsanalytics' ? (
+                <React.Suspense fallback={<TabSkeleton variant="analytics" />}>
+                    <DnsAnalytics zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : !error && !(loading && records.length === 0 && hostnames.length === 0) ? (
             <div className="glass-card" style={{ padding: '1.25rem', overflow: 'hidden' }}>

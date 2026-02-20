@@ -4,6 +4,7 @@
 // DELETE  /api/monitors?id=MONITOR_ID — delete a monitor
 
 const MAX_MONITORS_PER_USER = 50;
+const VALID_TYPES = ['dns_record', 'traffic_spike', 'error_rate', 'ssl_expiry'];
 
 export async function onRequestGet(context) {
     const { env } = context;
@@ -39,25 +40,54 @@ export async function onRequestPost(context) {
     }
 
     const body = await request.json();
-    const { zoneId, zoneName, recordType, recordName, expectedContent } = body;
+    const { zoneId, zoneName, monitorType = 'dns_record' } = body;
 
-    // Validate required fields
-    if (!zoneId || !recordType || !recordName || !expectedContent) {
-        return new Response(JSON.stringify({ error: 'Missing required fields: zoneId, recordType, recordName, expectedContent' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
+    if (!zoneId) {
+        return new Response(JSON.stringify({ error: 'Missing required field: zoneId' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
         });
     }
 
-    // Load existing monitors
+    if (!VALID_TYPES.includes(monitorType)) {
+        return new Response(JSON.stringify({ error: `Invalid monitorType. Allowed: ${VALID_TYPES.join(', ')}` }), {
+            status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    // Validate per type
+    if (monitorType === 'dns_record') {
+        const { recordType, recordName, expectedContent } = body;
+        if (!recordType || !recordName || !expectedContent) {
+            return new Response(JSON.stringify({ error: 'DNS Record monitor requires: recordType, recordName, expectedContent' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    } else if (monitorType === 'traffic_spike') {
+        if (!body.threshold || body.threshold < 1) {
+            return new Response(JSON.stringify({ error: 'Traffic Spike monitor requires: threshold (positive number)' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    } else if (monitorType === 'error_rate') {
+        if (!body.threshold || body.threshold < 1 || body.threshold > 100) {
+            return new Response(JSON.stringify({ error: 'Error Rate monitor requires: threshold (1-100)' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    } else if (monitorType === 'ssl_expiry') {
+        if (!body.daysBeforeExpiry || body.daysBeforeExpiry < 1) {
+            return new Response(JSON.stringify({ error: 'SSL Expiry monitor requires: daysBeforeExpiry (positive number)' }), {
+                status: 400, headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    }
+
     const raw = await kv.get(`DNS_MONITORS:${username}`);
     const monitors = raw ? JSON.parse(raw) : [];
 
-    // Enforce limit
     if (monitors.length >= MAX_MONITORS_PER_USER) {
         return new Response(JSON.stringify({ error: `Maximum ${MAX_MONITORS_PER_USER} monitors allowed per user.` }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
+            status: 400, headers: { 'Content-Type': 'application/json' }
         });
     }
 
@@ -65,15 +95,28 @@ export async function onRequestPost(context) {
         id: crypto.randomUUID(),
         zoneId,
         zoneName: zoneName || '',
-        recordType: recordType.toUpperCase(),
-        recordName,
-        expectedContent,
+        monitorType,
         enabled: true,
         lastCheck: null,
         lastStatus: 'unknown',
         lastError: null,
         createdAt: new Date().toISOString()
     };
+
+    // Add type-specific fields
+    if (monitorType === 'dns_record') {
+        monitor.recordType = body.recordType.toUpperCase();
+        monitor.recordName = body.recordName;
+        monitor.expectedContent = body.expectedContent;
+    } else if (monitorType === 'traffic_spike') {
+        monitor.threshold = body.threshold;
+        monitor.timeWindow = body.timeWindow || '1h';
+    } else if (monitorType === 'error_rate') {
+        monitor.threshold = body.threshold;
+        monitor.statusType = body.statusType || '5xx';
+    } else if (monitorType === 'ssl_expiry') {
+        monitor.daysBeforeExpiry = body.daysBeforeExpiry;
+    }
 
     monitors.push(monitor);
     await kv.put(`DNS_MONITORS:${username}`, JSON.stringify(monitors));

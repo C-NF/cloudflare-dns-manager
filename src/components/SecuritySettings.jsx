@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ShieldAlert, Shield, ShieldOff, ShieldCheck, AlertTriangle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, ShieldAlert, Shield, ShieldOff, ShieldCheck, AlertTriangle, CheckCircle, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Bot } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
-const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
+const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const [settings, setSettings] = useState(null);
     const [firewallRules, setFirewallRules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
     const [savingSettings, setSavingSettings] = useState({});
     const [showRules, setShowRules] = useState(false);
+    const [showFwModal, setShowFwModal] = useState(false);
+    const [editingRule, setEditingRule] = useState(null);
+    const [fwForm, setFwForm] = useState({ description: '', expression: '', ruleAction: 'block', priority: 1, paused: false });
+    const [fwSaving, setFwSaving] = useState(false);
 
     const fetchSettings = useCallback(async () => {
         setLoading(true);
@@ -71,6 +76,60 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
         setSavingSettings(prev => ({ ...prev, [`fw_${ruleId}`]: false }));
     };
 
+    const openAddRule = () => {
+        setEditingRule(null);
+        setFwForm({ description: '', expression: '', ruleAction: 'block', priority: 1, paused: false });
+        setShowFwModal(true);
+    };
+
+    const openEditRule = (rule) => {
+        setEditingRule(rule);
+        setFwForm({
+            description: rule.description || '',
+            expression: rule.filter?.expression || '',
+            ruleAction: rule.action || 'block',
+            priority: rule.priority || 1,
+            paused: rule.paused || false,
+        });
+        setShowFwModal(true);
+    };
+
+    const handleFwSave = async () => {
+        if (!fwForm.expression.trim()) { showToast(t('secFwExpressionRequired') || 'Filter expression is required', 'error'); return; }
+        setFwSaving(true);
+        try {
+            const payload = editingRule
+                ? { action: 'update_firewall_rule', ruleId: editingRule.id, filterId: editingRule.filter?.id, ...fwForm }
+                : { action: 'create_firewall_rule', ...fwForm };
+            const res = await fetch(`/api/zones/${zone.id}/security`, {
+                method: 'POST', headers: getHeaders(true), body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(t('secFwSaved') || 'Firewall rule saved');
+                setShowFwModal(false);
+                fetchSettings();
+            } else {
+                showToast(data.errors?.[0]?.message || t('errorOccurred'), 'error');
+            }
+        } catch (e) { showToast(t('errorOccurred'), 'error'); }
+        setFwSaving(false);
+    };
+
+    const handleFwDelete = (rule) => {
+        openConfirm(t('secFwDeleteConfirm') || 'Delete this firewall rule?', async () => {
+            try {
+                const res = await fetch(`/api/zones/${zone.id}/security`, {
+                    method: 'POST', headers: getHeaders(true),
+                    body: JSON.stringify({ action: 'delete_firewall_rule', ruleId: rule.id })
+                });
+                const data = await res.json();
+                if (data.success) { showToast(t('secFwDeleted') || 'Firewall rule deleted'); fetchSettings(); }
+                else showToast(data.errors?.[0]?.message || t('errorOccurred'), 'error');
+            } catch (e) { showToast(t('errorOccurred'), 'error'); }
+        });
+    };
+
     const ToggleSwitch = ({ checked, onChange, disabled }) => (
         <button role="switch" aria-checked={checked} onClick={onChange} disabled={disabled}
             style={{
@@ -101,8 +160,17 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
         { value: 28800, label: '8h' }, { value: 86400, label: '24h' },
     ];
 
+    const fwActionOptions = [
+        { value: 'block', label: 'Block' },
+        { value: 'allow', label: 'Allow' },
+        { value: 'challenge', label: 'Challenge' },
+        { value: 'js_challenge', label: 'JS Challenge' },
+        { value: 'managed_challenge', label: 'Managed Challenge' },
+        { value: 'log', label: 'Log' },
+    ];
+
     if (loading && !settings && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="settings" />;
     }
 
     if (fetchError && !settings) {
@@ -123,14 +191,14 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
     const updatingSec = savingSettings['security_level'];
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <ShieldAlert size={20} color="var(--primary)" />
                     <h3 style={{ fontSize: '1rem', margin: 0 }}>{t('secTitle')}</h3>
                 </div>
-                <button className="btn btn-outline" onClick={fetchSettings} disabled={loading} style={{ padding: '4px 8px', height: 'auto', fontSize: '0.75rem' }}>
+                <button className="btn btn-outline" onClick={fetchSettings} disabled={loading} style={{ padding: '4px 8px', height: 'auto', fontSize: '0.75rem' }} aria-label={t('refresh')}>
                     <RefreshCw size={12} className={loading ? 'spin' : ''} />
                 </button>
             </div>
@@ -144,7 +212,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.5 }}>{t('secLevelDesc')}</p>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                <div className="security-level-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem' }}>
                     {securityLevels.map(level => {
                         const isActive = settings?.security_level === level.value;
                         return (
@@ -175,6 +243,19 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
                         <span>{t('secUnderAttackWarning')}</span>
                     </div>
                 )}
+            </div>
+
+            {/* Bot Fight Mode */}
+            <div className="glass-card" style={{ padding: '1rem', background: 'var(--subtle-bg)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: settings?.bot_fight_mode === 'on' ? '#22c55e' : '#9ca3af', flexShrink: 0 }} />
+                        <h4 style={{ fontSize: '0.875rem', margin: 0 }}>{t('secBotFight') || 'Bot Fight Mode'}</h4>
+                        {savingSettings['bot_fight_mode'] && <RefreshCw size={12} className="spin" style={{ color: 'var(--text-muted)' }} />}
+                    </div>
+                    <ToggleSwitch checked={settings?.bot_fight_mode === 'on'} onChange={() => handleUpdate('bot_fight_mode', settings?.bot_fight_mode === 'on' ? 'off' : 'on')} disabled={savingSettings['bot_fight_mode']} />
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>{t('secBotFightDesc') || 'Challenge requests matching patterns of known bots before they can access your site.'}</p>
             </div>
 
             {/* Browser Integrity Check */}
@@ -224,11 +305,19 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
 
             {/* Firewall Rules */}
             <div className="glass-card" style={{ padding: '1rem', background: 'var(--subtle-bg)' }}>
-                <button className="unstyled" onClick={() => setShowRules(!showRules)} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)', padding: '0.25rem 0', background: 'transparent', border: 'none', width: '100%' }}>
-                    {showRules ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    {t('secFirewallRules')}
-                    <span className="badge" style={{ fontSize: '0.65rem', padding: '1px 6px', marginLeft: '4px' }}>{firewallRules.length}</span>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <button className="unstyled" onClick={() => setShowRules(!showRules)} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)', padding: '0.25rem 0', background: 'transparent', border: 'none' }}>
+                        {showRules ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        {t('secFirewallRules')}
+                        <span className="badge" style={{ fontSize: '0.65rem', padding: '1px 6px', marginLeft: '4px' }}>{firewallRules.length}</span>
+                    </button>
+                    {showRules && (
+                        <button className="btn" onClick={openAddRule}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.35rem 0.65rem', fontSize: '0.75rem', fontWeight: 600, borderRadius: '8px' }}>
+                            <Plus size={12} /> {t('secFwCreate') || 'Create Rule'}
+                        </button>
+                    )}
+                </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.5rem 0 0 0', lineHeight: 1.5 }}>{t('secFirewallRulesDesc')}</p>
 
                 {showRules && (
@@ -236,7 +325,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
                         {firewallRules.length === 0 ? (
                             <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>{t('secNoFirewallRules')}</p>
                         ) : firewallRules.map(rule => (
-                            <div key={rule.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: rule.paused ? 'transparent' : 'var(--input-bg)' }}>
+                            <div key={rule.id} className="firewall-rule-card" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: rule.paused ? 'transparent' : 'var(--input-bg)' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', flexWrap: 'wrap' }}>
                                         <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{rule.description || 'Untitled'}</span>
@@ -246,18 +335,81 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast }) => {
                                         </span>
                                         {rule.paused && <span className="badge" style={{ fontSize: '0.6rem', padding: '1px 6px' }}>PAUSED</span>}
                                     </div>
-                                    <code style={{ fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{rule.filter?.expression || ''}</code>
+                                    <code className="firewall-rule-expression" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{rule.filter?.expression || ''}</code>
                                 </div>
-                                <ToggleSwitch
-                                    checked={!rule.paused}
-                                    onChange={() => handleToggleFirewallRule(rule.id, !rule.paused)}
-                                    disabled={savingSettings[`fw_${rule.id}`]}
-                                />
+                                <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+                                    <button className="btn btn-outline" onClick={() => openEditRule(rule)} style={{ padding: '0.35rem', borderRadius: '6px' }} aria-label="Edit"><Edit2 size={14} /></button>
+                                    <button className="btn btn-outline" onClick={() => handleFwDelete(rule)} style={{ padding: '0.35rem', borderRadius: '6px', color: 'var(--error)' }} aria-label="Delete"><Trash2 size={14} /></button>
+                                    <ToggleSwitch
+                                        checked={!rule.paused}
+                                        onChange={() => handleToggleFirewallRule(rule.id, !rule.paused)}
+                                        disabled={savingSettings[`fw_${rule.id}`]}
+                                    />
+                                </div>
                             </div>
                         ))}
                     </div>
                 )}
             </div>
+
+            {/* Firewall Rule Modal */}
+            {showFwModal && (
+                <div className="modal-overlay" onClick={() => setShowFwModal(false)}>
+                    <div className="glass-card modal-content" onClick={e => e.stopPropagation()}
+                        style={{ width: '100%', maxWidth: '520px', padding: '1.5rem', margin: '2rem auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+                            <h3 style={{ fontSize: '1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <ShieldAlert size={18} color="var(--primary)" />
+                                {editingRule ? (t('secFwEdit') || 'Edit Firewall Rule') : (t('secFwCreate') || 'Create Firewall Rule')}
+                            </h3>
+                            <button onClick={() => setShowFwModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex' }} aria-label="Close"><X size={18} color="var(--text-muted)" /></button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>{t('secFwDescription') || 'Description'}</label>
+                                <input value={fwForm.description} onChange={e => setFwForm(p => ({ ...p, description: e.target.value }))}
+                                    placeholder="Block bad bots"
+                                    style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '0.875rem', boxSizing: 'border-box' }} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>{t('secFwExpression') || 'Filter Expression'}</label>
+                                <textarea value={fwForm.expression} onChange={e => setFwForm(p => ({ ...p, expression: e.target.value }))}
+                                    placeholder='ip.src eq 1.2.3.4 or http.request.uri.path contains "/admin"'
+                                    rows={3}
+                                    style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '0.8125rem', boxSizing: 'border-box', fontFamily: 'monospace', resize: 'vertical' }} />
+                                <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>{t('secFwExpressionHint') || 'Uses Cloudflare filter expressions (Wireshark-like syntax).'}</p>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>{t('secFwAction') || 'Action'}</label>
+                                    <select value={fwForm.ruleAction} onChange={e => setFwForm(p => ({ ...p, ruleAction: e.target.value }))}
+                                        style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '0.875rem', boxSizing: 'border-box' }}>
+                                        {fwActionOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>{t('secFwPriority') || 'Priority'}</label>
+                                    <input type="number" value={fwForm.priority} onChange={e => setFwForm(p => ({ ...p, priority: parseInt(e.target.value) || 1 }))}
+                                        min={1}
+                                        style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: '0.875rem', boxSizing: 'border-box' }} />
+                                </div>
+                            </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={fwForm.paused} onChange={e => setFwForm(p => ({ ...p, paused: e.target.checked }))} />
+                                {t('secFwStartPaused') || 'Start paused'}
+                            </label>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.5rem' }}>
+                            <button className="btn btn-outline" onClick={() => setShowFwModal(false)}>{t('cancel')}</button>
+                            <button className="btn" onClick={handleFwSave} disabled={fwSaving}
+                                style={{ background: 'var(--primary)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {fwSaving && <RefreshCw size={14} className="spin" />}
+                                {t('save')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

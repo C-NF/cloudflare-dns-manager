@@ -1,7 +1,7 @@
 import { logAudit } from '../../_audit.js';
 import { fireWebhook } from '../../_webhook.js';
 
-const SECURITY_SETTINGS = ['security_level', 'challenge_ttl', 'browser_check', 'privacy_pass'];
+const SECURITY_SETTINGS = ['security_level', 'challenge_ttl', 'browser_check', 'privacy_pass', 'bot_fight_mode'];
 
 async function cfGet(cfHeaders, zoneId, setting) {
     const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/settings/${setting}`, {
@@ -83,6 +83,81 @@ export async function onRequestPost(context) {
             const data = await res.json();
             if (data.success) {
                 await logAudit(kv, username, 'security.firewall_rule', `${paused ? 'Paused' : 'Enabled'} firewall rule ${ruleId} (zone: ${zoneId})`);
+            }
+            return new Response(JSON.stringify({ success: data.success, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
+        } catch (e) {
+            return new Response(JSON.stringify({ success: false, errors: [{ message: e.message }] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+    }
+
+    if (action === 'create_firewall_rule') {
+        const { description, expression, ruleAction, priority, paused } = body;
+        if (!expression || !ruleAction) {
+            return new Response(JSON.stringify({ success: false, errors: [{ message: 'Expression and action are required' }] }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        try {
+            const filterRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/filters`, {
+                method: 'POST',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify([{ expression }])
+            });
+            const filterData = await filterRes.json();
+            if (!filterData.success) {
+                return new Response(JSON.stringify({ success: false, errors: filterData.errors || [{ message: 'Failed to create filter' }] }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+            const filterId = filterData.result[0].id;
+            const ruleRes = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/firewall/rules`, {
+                method: 'POST',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify([{ description: description || '', action: ruleAction, filter: { id: filterId }, priority: priority || 1, paused: paused || false }])
+            });
+            const ruleData = await ruleRes.json();
+            if (ruleData.success) {
+                await logAudit(kv, username, 'security.create_firewall_rule', `Created firewall rule "${description}" (zone: ${zoneId})`);
+                await fireWebhook(kv, { type: 'security.create_firewall_rule', username, detail: `Created firewall rule "${description}"` });
+            }
+            return new Response(JSON.stringify({ success: ruleData.success, rule: ruleData.result?.[0], errors: ruleData.errors || [] }), { status: ruleData.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
+        } catch (e) {
+            return new Response(JSON.stringify({ success: false, errors: [{ message: e.message }] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+    }
+
+    if (action === 'update_firewall_rule') {
+        const { ruleId, filterId, description, expression, ruleAction, priority, paused } = body;
+        try {
+            if (expression && filterId) {
+                await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/filters/${filterId}`, {
+                    method: 'PUT',
+                    headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: filterId, expression })
+                });
+            }
+            const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/firewall/rules/${ruleId}`, {
+                method: 'PUT',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: ruleId, description: description || '', action: ruleAction, filter: { id: filterId }, priority: priority || 1, paused: paused || false })
+            });
+            const data = await res.json();
+            if (data.success) {
+                await logAudit(kv, username, 'security.update_firewall_rule', `Updated firewall rule ${ruleId} (zone: ${zoneId})`);
+            }
+            return new Response(JSON.stringify({ success: data.success, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
+        } catch (e) {
+            return new Response(JSON.stringify({ success: false, errors: [{ message: e.message }] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
+    }
+
+    if (action === 'delete_firewall_rule') {
+        const { ruleId } = body;
+        try {
+            const res = await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/firewall/rules/${ruleId}`, {
+                method: 'DELETE',
+                headers: { ...cfHeaders, 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.success) {
+                await logAudit(kv, username, 'security.delete_firewall_rule', `Deleted firewall rule ${ruleId} (zone: ${zoneId})`);
+                await fireWebhook(kv, { type: 'security.delete_firewall_rule', username, detail: `Deleted firewall rule ${ruleId}` });
             }
             return new Response(JSON.stringify({ success: data.success, errors: data.errors || [] }), { status: data.success ? 200 : 400, headers: { 'Content-Type': 'application/json' } });
         } catch (e) {

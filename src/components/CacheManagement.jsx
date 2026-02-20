@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ToggleLeft, ToggleRight, Trash2, Link, AlertTriangle } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const [devMode, setDevMode] = useState(null);
@@ -148,8 +149,12 @@ const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const urlCount = urlText.split('\n').map(u => u.trim()).filter(u => u.length > 0).length;
     const isDevModeOn = devMode?.value === 'on';
 
+    if (loading && !devMode && !fetchError) {
+        return <TabSkeleton variant="cache" />;
+    }
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {fetchError && (
                 <div style={{
                     display: 'flex', flexDirection: 'column', gap: '6px',

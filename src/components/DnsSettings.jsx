@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Globe, AlertTriangle, Shield, CheckCircle, XCircle } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
     const [settings, setSettings] = useState(null);
@@ -28,6 +29,8 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
 
     useEffect(() => { fetchSettings(); }, [fetchSettings]);
 
+    const isFreePlan = !zone.plan || zone.plan.legacy_id === 'free' || zone.plan.id === 'free';
+
     const handleUpdate = async (setting, value) => {
         setSavingSettings(prev => ({ ...prev, [setting]: true }));
         try {
@@ -41,7 +44,12 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
                 setSettings(prev => ({ ...prev, [setting]: data.result }));
                 showToast(t('updateSuccess'));
             } else {
-                showToast(data.errors?.[0]?.message || t('errorOccurred'), 'error');
+                const errMsg = data.errors?.[0]?.message || '';
+                if (errMsg.includes('only allowed on paid plans')) {
+                    showToast(t('cnameFlattenPaidOnly'), 'error');
+                } else {
+                    showToast(errMsg || t('errorOccurred'), 'error');
+                }
             }
         } catch (e) {
             showToast(t('errorOccurred'), 'error');
@@ -87,7 +95,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
     );
 
     if (loading && !settings && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="settings" />;
     }
 
     if (fetchError && !settings) {
@@ -105,7 +113,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
     const isDnssecPending = dnssecStatus === 'pending';
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Globe size={20} color="var(--primary)" />
@@ -124,7 +132,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
                         <h4 style={{ fontSize: '0.875rem', margin: 0 }}>DNSSEC</h4>
                         {savingSettings.dnssec && <RefreshCw size={12} className="spin" style={{ color: 'var(--text-muted)' }} />}
                         <span className={`badge ${isDnssecActive ? 'badge-green' : isDnssecPending ? 'badge-blue' : 'badge-orange'}`} style={{ fontSize: '0.6rem', padding: '1px 6px' }}>
-                            {isDnssecActive ? 'Active' : isDnssecPending ? 'Pending' : 'Disabled'}
+                            {isDnssecActive ? t('active') : isDnssecPending ? t('pending') : t('disabled')}
                         </span>
                     </div>
                     <button
@@ -137,7 +145,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
                             color: 'white', border: 'none', padding: '0.4rem 0.75rem', fontSize: '0.8125rem', borderRadius: '8px'
                         }}
                     >
-                        {savingSettings.dnssec ? <RefreshCw size={14} className="spin" /> : isDnssecActive || isDnssecPending ? t('disable') || 'Disable' : t('enable') || 'Enable'}
+                        {savingSettings.dnssec ? <RefreshCw size={14} className="spin" /> : isDnssecActive || isDnssecPending ? t('disable') : t('enable')}
                     </button>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>{t('dnssecDesc')}</p>
@@ -159,7 +167,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
                 {isDnssecPending && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', marginTop: '0.75rem', fontSize: '0.75rem', color: '#3b82f6' }}>
                         <AlertTriangle size={14} />
-                        <span>{t('dnssecPending') || 'DNSSEC is pending activation. Add the DS record to your registrar.'}</span>
+                        <span>{t('dnssecPending')}</span>
                     </div>
                 )}
             </div>
@@ -178,18 +186,21 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
                         disabled={savingSettings.cname_flattening}
                         style={{ padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.8125rem', border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)' }}
                     >
-                        <option value="flatten_at_root">{t('cnameFlattenRoot') || 'Flatten at root'}</option>
-                        <option value="flatten_all">{t('cnameFlattenAll') || 'Flatten all CNAMEs'}</option>
+                        <option value="flatten_at_root">{t('cnameFlattenRoot')}</option>
+                        <option value="flatten_all" disabled={isFreePlan}>{t('cnameFlattenAll')}{isFreePlan ? ` (${t('paidOnly')})` : ''}</option>
                     </select>
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>{t('cnameFlatteningDesc')}</p>
+                {isFreePlan && (
+                    <p style={{ fontSize: '0.7rem', color: 'var(--warning, #d97706)', margin: '0.35rem 0 0 0', lineHeight: 1.4 }}>{t('cnameFlattenPaidOnly')}</p>
+                )}
             </div>
 
             {/* Nameservers (read-only info) */}
             {zone.name_servers && zone.name_servers.length > 0 && (
                 <div className="glass-card" style={{ padding: '1rem', background: 'var(--subtle-bg)' }}>
-                    <h4 style={{ fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>{t('nameservers') || 'Nameservers'}</h4>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.5 }}>{t('nameserversDesc') || 'Your domain\'s assigned Cloudflare nameservers.'}</p>
+                    <h4 style={{ fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>{t('nameservers')}</h4>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem', lineHeight: 1.5 }}>{t('nameserversDesc')}</p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                         {zone.name_servers.map(ns => (
                             <code key={ns} style={{ fontSize: '0.8125rem', padding: '0.35rem 0.75rem', borderRadius: '6px', background: 'var(--input-bg)', border: '1px solid var(--border)' }}>{ns}</code>

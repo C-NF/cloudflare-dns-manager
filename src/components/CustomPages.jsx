@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileWarning, AlertTriangle, ExternalLink, Edit2, X } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const CustomPages = ({ zone, getHeaders, t, showToast }) => {
     const [pages, setPages] = useState([]);
@@ -70,7 +71,7 @@ const CustomPages = ({ zone, getHeaders, t, showToast }) => {
     };
 
     if (loading && pages.length === 0 && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="list" />;
     }
 
     if (fetchError && pages.length === 0) {
@@ -83,7 +84,7 @@ const CustomPages = ({ zone, getHeaders, t, showToast }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <FileWarning size={20} color="var(--primary)" />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Code, Plus, Edit2, Trash2, AlertTriangle, X } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const [routes, setRoutes] = useState([]);
@@ -92,7 +93,7 @@ const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     };
 
     if (loading && routes.length === 0 && !fetchError) {
-        return <div style={{ padding: '2rem', textAlign: 'center' }}><RefreshCw size={20} className="spin" /></div>;
+        return <TabSkeleton variant="list" />;
     }
 
     if (fetchError && routes.length === 0) {
@@ -106,7 +107,7 @@ const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

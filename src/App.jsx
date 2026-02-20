@@ -48,10 +48,23 @@ const App = () => {
     const searchRef = useRef(null);
     const refreshInProgress = useRef(false);
     const refreshAbortController = useRef(null);
+    const authRef = useRef(null);
     const zoneFetchCache = useRef(new Map());
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState('overview');
+    // Hash-based routing: /#/zone/{name}/{tab} or /#/overview
+    const parseHash = () => {
+        const hash = window.location.hash.replace(/^#\/?/, '');
+        const parts = hash.split('/');
+        if (parts[0] === 'zone' && parts[1]) {
+            return { zoneName: decodeURIComponent(parts[1]), tab: parts[2] || 'dns' };
+        }
+        return { zoneName: null, tab: parts[0] || 'overview' };
+    };
+    const initialRoute = parseHash();
+    const [activeTab, setActiveTab] = useState(initialRoute.tab || 'overview');
+    const pendingRouteRef = useRef(initialRoute.zoneName ? initialRoute : null);
+    const suppressHashUpdate = useRef(false);
     const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
     const [zoneSearchFilter, setZoneSearchFilter] = useState('');
     const zoneDropdownRef = useRef(null);
@@ -133,10 +146,13 @@ const App = () => {
             });
             if (res.ok) {
                 const data = await res.json();
+                const freshAccounts = (data.accounts && data.accounts.length > 0) ? data.accounts : null;
                 const sessions = (authData.sessions || []).map((s, i) =>
-                    i === (authData.activeSessionIndex || 0) ? { ...s, token: data.token } : s
+                    i === (authData.activeSessionIndex || 0)
+                        ? { ...s, token: data.token, ...(freshAccounts ? { accounts: freshAccounts } : {}) }
+                        : s
                 );
-                return { ...authData, token: data.token, refreshToken: data.refreshToken || authData.refreshToken, sessions };
+                return { ...authData, token: data.token, refreshToken: data.refreshToken || authData.refreshToken, sessions, ...(freshAccounts ? { accounts: freshAccounts } : {}) };
             }
         } catch (e) {
             if (e.name !== 'AbortError') console.error('Token refresh failed:', e);
@@ -162,6 +178,42 @@ const App = () => {
         localStorage.removeItem('auth_session');
         sessionStorage.removeItem('auth_session');
     };
+
+    // Keep authRef in sync so timers/callbacks always see fresh auth
+    useEffect(() => { authRef.current = auth; }, [auth]);
+
+    // Sync URL hash when zone/tab changes
+    useEffect(() => {
+        if (suppressHashUpdate.current) { suppressHashUpdate.current = false; return; }
+        let newHash;
+        if (selectedZone) {
+            newHash = `#/zone/${encodeURIComponent(selectedZone.name)}/${activeTab}`;
+        } else {
+            newHash = activeTab && activeTab !== 'overview' ? `#/${activeTab}` : '#/';
+        }
+        if (window.location.hash !== newHash) {
+            window.history.pushState(null, '', newHash);
+        }
+    }, [selectedZone?.id, activeTab]);
+
+    // Handle browser back/forward
+    useEffect(() => {
+        const handlePopState = () => {
+            suppressHashUpdate.current = true;
+            const route = parseHash();
+            if (route.zoneName) {
+                const match = zones.find(z => z.name === route.zoneName);
+                if (match) {
+                    if (!selectedZone || selectedZone.id !== match.id) selectZone(match, authRef.current || auth);
+                    setActiveTab(route.tab || 'dns');
+                }
+            } else {
+                setActiveTab(route.tab || 'overview');
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [zones, selectedZone, auth]);
 
     // Online/offline detection
     useEffect(() => {
@@ -267,7 +319,8 @@ const App = () => {
             if (abortController.signal.aborted) return;
             refreshInProgress.current = true;
             try {
-                const updated = await tryRefreshToken(auth, abortController.signal);
+                const currentAuth = authRef.current;
+                const updated = await tryRefreshToken(currentAuth, abortController.signal);
                 if (abortController.signal.aborted) return;
                 if (updated) {
                     setAuth(updated);
@@ -358,7 +411,7 @@ const App = () => {
                 const cacheKey = `local:${token}`;
                 if (batchCache.has(cacheKey)) {
                     promises.push(batchCache.get(cacheKey).then(zones =>
-                        zones.map(z => ({ ...z, _localKey: key, _owner: key, _accountType: 'api_token' }))
+                        zones.map(z => ({ ...z, _localKey: key, _owner: key, _accountType: 'api_token', _accountName: key, _tokenHint: '…' + token.slice(-4) }))
                     ));
                     continue;
                 }
@@ -371,7 +424,7 @@ const App = () => {
                     return [];
                 }).catch((err) => { console.error(`Failed to fetch zones for local token ${key}:`, err); return []; });
                 batchCache.set(cacheKey, fetchPromise);
-                promises.push(fetchPromise.then(zones => zones.map(z => ({ ...z, _localKey: key, _owner: key, _accountType: 'api_token' }))));
+                promises.push(fetchPromise.then(zones => zones.map(z => ({ ...z, _localKey: key, _owner: key, _accountType: 'api_token', _accountName: key, _tokenHint: '…' + token.slice(-4) }))));
             }
         } else {
             // Server mode: use JWT + managed accounts
@@ -398,7 +451,7 @@ const App = () => {
                     }
                     sessionPromises.push(
                         batchCache.get(cacheKey).then(zones =>
-                            zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username, _accountType: authData.email ? 'global_key' : 'api_token' }))
+                            zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: 0, _owner: session.username, _accountType: authData.email ? 'global_key' : 'api_token', _accountName: authData.email || session.username || 'Default', _tokenHint: '' }))
                         )
                     );
                 } else {
@@ -419,7 +472,7 @@ const App = () => {
                         }
                         sessionPromises.push(
                             batchCache.get(cacheKey).then(zones =>
-                                zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username, _accountType: acc.type || 'api_token' }))
+                                zones.map(z => ({ ...z, _sessionIdx: si, _accountIdx: acc.id, _owner: session.username, _accountType: acc.type || 'api_token', _accountName: acc.name || `Account ${acc.id}`, _tokenHint: acc.hint || '' }))
                             )
                         );
                     }
@@ -451,7 +504,18 @@ const App = () => {
         setZones(sortedZones);
 
         if (sortedZones.length > 0) {
-            if (selectedZone) {
+            // Check for pending route from URL hash
+            const pending = pendingRouteRef.current;
+            if (pending && pending.zoneName) {
+                const match = sortedZones.find(z => z.name === pending.zoneName);
+                pendingRouteRef.current = null;
+                if (match) {
+                    selectZone(match, authData);
+                    setActiveTab(pending.tab || 'dns');
+                } else {
+                    selectZone(sortedZones[0], authData);
+                }
+            } else if (selectedZone) {
                 const stillExists = sortedZones.find(z => z.id === selectedZone.id && z._owner === selectedZone._owner);
                 if (stillExists) {
                     selectZone(stillExists, authData);
@@ -459,7 +523,19 @@ const App = () => {
                     selectZone(sortedZones[0], authData);
                 }
             } else {
-                selectZone(sortedZones[0], authData);
+                // No pending route and no selected zone — check current hash
+                const route = parseHash();
+                if (route.zoneName) {
+                    const match = sortedZones.find(z => z.name === route.zoneName);
+                    if (match) {
+                        selectZone(match, authData);
+                        setActiveTab(route.tab || 'dns');
+                    } else {
+                        selectZone(sortedZones[0], authData);
+                    }
+                } else {
+                    selectZone(sortedZones[0], authData);
+                }
             }
         } else {
             setSelectedZone(null);
@@ -474,8 +550,22 @@ const App = () => {
                 const credentials = JSON.parse(saved);
                 // If we have a refresh token, refresh immediately to get a fresh access token
                 if (credentials.refreshToken && credentials.mode === 'server') {
-                    tryRefreshToken(credentials).then(updated => {
+                    tryRefreshToken(credentials).then(async (updated) => {
                         if (updated) {
+                            // Fetch fresh accounts from admin/settings (definitive source for types)
+                            try {
+                                const accRes = await fetch('/api/admin/settings', { headers: { 'Authorization': `Bearer ${updated.token}` } });
+                                if (accRes.ok) {
+                                    const accData = await accRes.json();
+                                    const fresh = accData.accounts || [];
+                                    if (fresh.length > 0) {
+                                        const si = updated.activeSessionIndex || 0;
+                                        const newSessions = [...(updated.sessions || [])];
+                                        if (newSessions[si]) newSessions[si] = { ...newSessions[si], accounts: fresh };
+                                        updated = { ...updated, accounts: fresh, sessions: newSessions };
+                                    }
+                                }
+                            } catch (e) { /* use refresh accounts as fallback */ }
                             setAuth(updated);
                             persistAuth(updated);
                             fetchZones(updated);
@@ -719,6 +809,8 @@ const App = () => {
         setStorageToggleLoading(false);
     };
 
+    const [confirmGroupDelete, setConfirmGroupDelete] = useState(null);
+
     const handleUnbindZone = (zoneId) => {
         const hidden = JSON.parse(localStorage.getItem('hidden_zones') || '[]');
         if (!hidden.includes(zoneId)) {
@@ -733,6 +825,48 @@ const App = () => {
             if (remaining.length > 0) selectZone(remaining[0], auth);
         }
         showToast(t('zoneUnbound'), 'success');
+    };
+
+    const handleUnbindZoneFromDropdown = (e, zoneId) => {
+        e.stopPropagation();
+        if (!confirm(t('unbindZoneConfirmShort'))) return;
+        handleUnbindZone(zoneId);
+    };
+
+    const handleDeleteGroup = async (group) => {
+        setConfirmGroupDelete(null);
+        setZoneDropdownOpen(false);
+        if (group.localKey) {
+            // Local token: remove from localStorage
+            const localTokens = JSON.parse(localStorage.getItem('local_cf_tokens') || '{}');
+            delete localTokens[group.localKey];
+            localStorage.setItem('local_cf_tokens', JSON.stringify(localTokens));
+            if (selectedZone && selectedZone._localKey === group.localKey) setSelectedZone(null);
+            showToast(t('localTokenRemoved'), 'success');
+            fetchZones(auth);
+        } else if (group.sessionIdx != null && group.accountIdx != null) {
+            // Server account: delete from server
+            try {
+                const freshAuth = await ensureFreshAuth();
+                const adminHeaders = { 'Authorization': `Bearer ${freshAuth.token}`, 'Content-Type': 'application/json' };
+                const res = await fetch(`/api/admin/settings?index=${group.accountIdx}`, {
+                    method: 'DELETE', headers: adminHeaders
+                });
+                if (res.ok) {
+                    showToast(t('accountRemoved'), 'success');
+                    const newAuth = await refreshAuthAccounts(freshAuth);
+                    if (selectedZone && selectedZone._sessionIdx === group.sessionIdx && selectedZone._accountIdx === group.accountIdx) {
+                        setSelectedZone(null);
+                    }
+                    fetchZones(newAuth);
+                } else {
+                    showToast(t('errorOccurred'), 'error');
+                }
+            } catch (err) {
+                console.error('Failed to delete group:', err);
+                showToast(t('errorOccurred'), 'error');
+            }
+        }
     };
 
     const handleToggleZoneStorage = async (zoneObj) => {
@@ -885,7 +1019,7 @@ const App = () => {
             )}
             {/* Toast Stack */}
             {toasts.length > 0 && (
-                <div className="toast-stack">
+                <div className="toast-stack" aria-live="polite" role="status">
                     {toasts.map((toastItem) => (
                         <div key={toastItem.id} className={`toast-item ${toastItem.exiting ? 'toast-exit' : 'toast-enter'}`} style={{
                             color: toastItem.type === 'success' ? 'var(--text)' : 'var(--error)',
@@ -1363,7 +1497,8 @@ const App = () => {
                 <UserManagement show={showUserManagement} onClose={() => setShowUserManagement(false)} auth={auth} t={t} showToast={showToast} />
             </ErrorBoundary>
 
-            <div className="app-layout">
+            <a href="#main-content" className="skip-link">{t('skipToContent') || 'Skip to content'}</a>
+            <div className="app-layout" id="main-content">
                 {/* Sidebar */}
                 <aside className={`sidebar${sidebarOpen ? ' sidebar--open' : ''}`}>
                     <div className="sidebar-header">
@@ -1410,35 +1545,102 @@ const App = () => {
                                         </div>
                                     </div>
                                 )}
-                                {zones
-                                    .filter(z => !zoneSearchFilter || z.name.toLowerCase().includes(zoneSearchFilter.toLowerCase()))
-                                    .map(z => (
-                                    <button
-                                        key={`${z._owner}_${z.id}`}
-                                        className={`zone-dropdown-item${selectedZone?.id === z.id ? ' selected' : ''}`}
-                                        onClick={() => {
-                                            selectZone(z, auth);
-                                            setZoneDropdownOpen(false);
-                                            setZoneSearchFilter('');
-                                            if (activeTab === 'overview') setActiveTab('dns');
-                                        }}
-                                    >
-                                        <span className="zone-dropdown-dot" style={{ background: 'var(--success)' }} />
-                                        <span className="zone-dropdown-item-name">{z.name}</span>
-                                        <span className="zone-dropdown-item-badge" style={{
-                                            background: z._accountType === 'global_key' ? 'rgba(139, 92, 246, 0.12)' : 'rgba(59, 130, 246, 0.12)',
-                                            color: z._accountType === 'global_key' ? '#7c3aed' : '#2563eb'
-                                        }}>
-                                            {z._accountType === 'global_key' ? 'GK' : 'AT'}
-                                        </span>
-                                    </button>
-                                ))}
+                                {(() => {
+                                    const filtered = zones.filter(z => !zoneSearchFilter || z.name.toLowerCase().includes(zoneSearchFilter.toLowerCase()));
+                                    // Group zones by account credential
+                                    const groups = [];
+                                    const groupMap = new Map();
+                                    for (const z of filtered) {
+                                        const gk = `${z._sessionIdx ?? 'L'}_${z._accountIdx ?? z._localKey ?? 0}`;
+                                        if (!groupMap.has(gk)) {
+                                            const group = { key: gk, type: z._accountType, name: z._accountName, tokenHint: z._tokenHint, sessionIdx: z._sessionIdx, accountIdx: z._accountIdx, localKey: z._localKey, zones: [] };
+                                            groupMap.set(gk, group);
+                                            groups.push(group);
+                                        }
+                                        groupMap.get(gk).zones.push(z);
+                                    }
+                                    const needsGrouping = groups.length > 1;
+                                    return groups.map((group, gi) => (
+                                        <React.Fragment key={group.key}>
+                                            <div style={{
+                                                padding: '0.35rem 0.75rem', fontSize: '0.65rem', fontWeight: 700,
+                                                color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em',
+                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                borderTop: gi > 0 ? '1px solid var(--border)' : 'none',
+                                                marginTop: gi > 0 ? '0.25rem' : 0,
+                                                paddingTop: gi > 0 ? '0.5rem' : '0.35rem'
+                                            }}>
+                                                <span style={{
+                                                    padding: '1px 5px', borderRadius: '3px', fontSize: '0.6rem', fontWeight: 700,
+                                                    background: group.type === 'global_key' ? 'rgba(139, 92, 246, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                                    color: group.type === 'global_key' ? '#7c3aed' : '#2563eb'
+                                                }}>
+                                                    {group.type === 'global_key' ? 'GK' : 'AT'}
+                                                </span>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{group.name}</span>
+                                                {group.tokenHint && (
+                                                    <span style={{ fontFamily: 'monospace', fontSize: '0.6rem', opacity: 0.5, flexShrink: 0 }}>{group.tokenHint}</span>
+                                                )}
+                                                <span style={{ opacity: 0.5, flexShrink: 0 }}>{group.zones.length}</span>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setConfirmGroupDelete(group); }}
+                                                    style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px', color: 'var(--text-muted)', borderRadius: '3px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                                                    title={t('deleteGroup')}
+                                                    onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
+                                                    onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                                                >
+                                                    <Trash2 size={11} />
+                                                </button>
+                                            </div>
+                                            {group.zones.map(z => (
+                                                <div
+                                                    key={`${z._owner}_${z.id}`}
+                                                    className={`zone-dropdown-item${selectedZone?.id === z.id ? ' selected' : ''}`}
+                                                    style={{ display: 'flex', alignItems: 'center' }}
+                                                >
+                                                    <button
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, border: 'none', background: 'none', cursor: 'pointer', padding: '0', color: 'inherit', font: 'inherit', textAlign: 'left' }}
+                                                        onClick={() => {
+                                                            selectZone(z, auth);
+                                                            setZoneDropdownOpen(false);
+                                                            setZoneSearchFilter('');
+                                                            if (activeTab === 'overview') setActiveTab('dns');
+                                                        }}
+                                                    >
+                                                        <span className="zone-dropdown-dot" style={{ background: 'var(--success)' }} />
+                                                        <span className="zone-dropdown-item-name">{z.name}</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleUnbindZoneFromDropdown(e, z.id)}
+                                                        style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '2px 4px', color: 'var(--text-muted)', borderRadius: '3px', display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 'auto' }}
+                                                        title={t('unbindZone')}
+                                                        onMouseEnter={e => e.currentTarget.style.color = 'var(--danger)'}
+                                                        onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </React.Fragment>
+                                    ));
+                                })()}
                             </div>
                         )}
                     </div>
 
                     {/* Navigation */}
-                    <nav className="sidebar-nav">
+                    <nav className="sidebar-nav" onKeyDown={(e) => {
+                        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+                        e.preventDefault();
+                        const items = Array.from(e.currentTarget.querySelectorAll('.sidebar-nav-item'));
+                        const idx = items.indexOf(document.activeElement);
+                        let next;
+                        if (e.key === 'ArrowDown') next = items[(idx + 1) % items.length];
+                        else if (e.key === 'ArrowUp') next = items[(idx - 1 + items.length) % items.length];
+                        else if (e.key === 'Home') next = items[0];
+                        else if (e.key === 'End') next = items[items.length - 1];
+                        if (next) next.focus();
+                    }}>
                         <button
                             className={`sidebar-nav-item${activeTab === 'overview' ? ' active' : ''}`}
                             onClick={() => { setActiveTab('overview'); setSidebarOpen(false); }}
@@ -1466,6 +1668,12 @@ const App = () => {
                                     onClick={() => { setActiveTab('dnssettings'); setSidebarOpen(false); }}
                                 >
                                     <Settings size={16} /> {t('dnsSettingsTab')}
+                                </button>
+                                <button
+                                    className={`sidebar-nav-item${activeTab === 'dnsanalytics' ? ' active' : ''}`}
+                                    onClick={() => { setActiveTab('dnsanalytics'); setSidebarOpen(false); }}
+                                >
+                                    <BarChart2 size={16} /> {t('dnsAnalyticsTab')}
                                 </button>
                                 {/* Performance */}
                                 <div className="sidebar-separator" />
@@ -1714,6 +1922,50 @@ const App = () => {
             </footer>
                 </div>{/* end app-content */}
             </div>{/* end app-layout */}
+
+            {/* Group Delete Confirmation Modal */}
+            {confirmGroupDelete && (
+                <div className="modal-overlay" style={{ zIndex: 10000 }}
+                    onClick={(e) => { if (e.target === e.currentTarget) setConfirmGroupDelete(null); }}>
+                    <div className="glass-card fade-in modal-content" role="dialog" aria-label={t('deleteGroup')} style={{ padding: '2rem', maxWidth: '440px', width: '90%', textAlign: 'center' }}>
+                        <div style={{ marginBottom: '1rem' }}>
+                            <Trash2 size={28} color="var(--danger)" />
+                        </div>
+                        <h2 style={{ marginBottom: '0.75rem', fontSize: '1.1rem' }}>{t('deleteGroup')}</h2>
+                        <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                            <span style={{
+                                padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700,
+                                background: confirmGroupDelete.type === 'global_key' ? 'rgba(139, 92, 246, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                                color: confirmGroupDelete.type === 'global_key' ? '#7c3aed' : '#2563eb'
+                            }}>
+                                {confirmGroupDelete.type === 'global_key' ? 'GK' : 'AT'}
+                            </span>
+                            <span style={{ fontWeight: 600 }}>{confirmGroupDelete.name}</span>
+                            {confirmGroupDelete.tokenHint && (
+                                <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{confirmGroupDelete.tokenHint}</span>
+                            )}
+                        </div>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                            {t('deleteGroupDesc').replace('{count}', confirmGroupDelete.zones.length)}
+                        </p>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem', maxHeight: '100px', overflowY: 'auto', textAlign: 'left', padding: '0.5rem', background: 'var(--bg)', borderRadius: '6px' }}>
+                            {confirmGroupDelete.zones.map(z => (
+                                <div key={z.id} style={{ padding: '2px 0' }}>{z.name}</div>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setConfirmGroupDelete(null)}>{t('cancel')}</button>
+                            <button
+                                className="btn"
+                                style={{ flex: 1, background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                                onClick={() => handleDeleteGroup(confirmGroupDelete)}
+                            >
+                                {t('deleteGroup')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Onboarding Tour */}
             <OnboardingTour t={t} />

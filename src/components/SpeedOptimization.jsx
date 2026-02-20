@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Zap, ChevronDown, ChevronRight, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import TabSkeleton from './TabSkeleton';
 
 const SETTINGS_META = [
     {
@@ -174,11 +175,7 @@ const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
     );
 
     if (loading && !settings && !fetchError) {
-        return (
-            <div style={{ padding: '2rem', textAlign: 'center' }}>
-                <RefreshCw size={20} className="spin" />
-            </div>
-        );
+        return <TabSkeleton variant="settings" />;
     }
 
     if (fetchError && !settings) {
@@ -210,7 +207,7 @@ const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
     }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="tab-enter" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Enable All / Disable All Section */}
             <div className="glass-card" style={{ padding: '1.5rem', background: 'var(--subtle-bg)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem' }}>

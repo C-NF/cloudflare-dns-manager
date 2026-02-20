@@ -178,18 +178,18 @@ export async function onRequestPost(context) {
             const tokensJson = await kv.get('USER_TOKENS:admin');
             if (tokensJson) {
                 const tokens = JSON.parse(tokensJson);
-                accounts = tokens.map(t => ({ id: t.id, name: t.name }));
+                accounts = tokens.map(t => { const tp = t.type || (t.email ? 'global_key' : 'api_token'); return { id: t.id, name: t.name, type: tp, hint: tp === 'global_key' ? (t.email || '') : (t.token ? '…' + t.token.slice(-4) : '') }; });
             }
         }
         if (accounts.length === 0) {
             // Fallback: env-based tokens
             const tokens = [];
             if (env.CF_API_TOKEN) {
-                tokens.push({ id: 0, name: 'Default Account' });
+                tokens.push({ id: 0, name: 'Default Account', type: 'api_token' });
             }
             let i = 1;
             while (env[`CF_API_TOKEN${i}`]) {
-                tokens.push({ id: i, name: `Account ${i}` });
+                tokens.push({ id: i, name: `Account ${i}`, type: 'api_token' });
                 i++;
             }
             accounts = tokens;
@@ -198,7 +198,7 @@ export async function onRequestPost(context) {
         const tokensJson = await kv.get(`USER_TOKENS:${loginUsername}`);
         if (tokensJson) {
             const tokens = JSON.parse(tokensJson);
-            accounts = tokens.map(t => ({ id: t.id, name: t.name }));
+            accounts = tokens.map(t => { const tp = t.type || (t.email ? 'global_key' : 'api_token'); return { id: t.id, name: t.name, type: tp, hint: tp === 'global_key' ? (t.email || '') : (t.token ? '…' + t.token.slice(-4) : '') }; });
         }
     }
 
