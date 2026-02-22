@@ -528,9 +528,9 @@ const App = () => {
                 if (credentials.refreshToken && credentials.mode === 'server') {
                     tryRefreshToken(credentials).then(async (updated) => {
                         if (updated) {
-                            // Use refreshAuthAccounts (same path that works after adding accounts)
-                            const newAuth = await refreshAuthAccounts(updated);
-                            fetchZones(newAuth);
+                            setAuth(updated);
+                            persistAuth(updated);
+                            fetchZones(updated);
                         } else {
                             // Refresh failed — try with existing token (may still work)
                             setAuth(credentials);

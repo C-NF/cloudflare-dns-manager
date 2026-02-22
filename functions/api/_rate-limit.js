@@ -34,6 +34,10 @@ function findLimit(pathname) {
     return null;
 }
 
+// In-memory cache: { key → { count, windowStart, lastSync } }
+const memCache = new Map();
+const MEM_TTL = 5000; // sync to KV every 5 seconds
+
 export async function checkRateLimit(kv, ip, pathname) {
     if (!kv) return null; // No KV, skip rate limiting
 
@@ -44,24 +48,39 @@ export async function checkRateLimit(kv, ip, pathname) {
     const key = `RATELIMIT:${ip}:${limitKey}`;
     const now = Date.now();
 
-    const raw = await kv.get(key);
-    let data = raw ? JSON.parse(raw) : null;
-
-    // If no record or window expired, start fresh
-    if (!data || (now - data.windowStart) > limit.windowSec * 1000) {
-        data = { count: 1, windowStart: now };
-        await kv.put(key, JSON.stringify(data), { expirationTtl: limit.windowSec * 2 });
+    // Check in-memory first
+    let mem = memCache.get(key);
+    if (mem && (now - mem.windowStart) <= limit.windowSec * 1000) {
+        mem.count++;
+        if (mem.count > limit.max) {
+            // Over limit — sync to KV and reject
+            if (now - mem.lastSync > MEM_TTL) {
+                await kv.put(key, JSON.stringify({ count: mem.count, windowStart: mem.windowStart }), { expirationTtl: limit.windowSec * 2 });
+                mem.lastSync = now;
+            }
+            return Math.ceil((mem.windowStart + limit.windowSec * 1000 - now) / 1000) || 1;
+        }
+        // Under limit — skip KV entirely (sync periodically)
+        if (now - mem.lastSync > MEM_TTL) {
+            kv.put(key, JSON.stringify({ count: mem.count, windowStart: mem.windowStart }), { expirationTtl: limit.windowSec * 2 }); // fire-and-forget
+            mem.lastSync = now;
+        }
         return null;
     }
 
-    data.count++;
+    // Memory miss or expired — fall back to KV
+    const raw = await kv.get(key);
+    let data = raw ? JSON.parse(raw) : null;
+    if (!data || (now - data.windowStart) > limit.windowSec * 1000) {
+        data = { count: 1, windowStart: now };
+    } else {
+        data.count++;
+    }
+    memCache.set(key, { ...data, lastSync: now });
+    await kv.put(key, JSON.stringify(data), { expirationTtl: limit.windowSec * 2 });
 
     if (data.count > limit.max) {
-        const retryAfter = Math.ceil((data.windowStart + limit.windowSec * 1000 - now) / 1000);
-        await kv.put(key, JSON.stringify(data), { expirationTtl: limit.windowSec * 2 });
-        return retryAfter > 0 ? retryAfter : 1;
+        return Math.ceil((data.windowStart + limit.windowSec * 1000 - now) / 1000) || 1;
     }
-
-    await kv.put(key, JSON.stringify(data), { expirationTtl: limit.windowSec * 2 });
     return null;
 }
