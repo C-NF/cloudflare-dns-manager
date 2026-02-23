@@ -8,7 +8,8 @@ const SETTINGS = [
     { key: 'hotlink_protection', descKey: 'ssHotlinkProtectionDesc' },
 ];
 
-const ScrapeShield = ({ zone, getHeaders, t, showToast }) => {
+const ScrapeShield = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -18,7 +19,7 @@ const ScrapeShield = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/scrape-shield`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/scrape-shield`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSettings(data.settings);
@@ -36,7 +37,7 @@ const ScrapeShield = ({ zone, getHeaders, t, showToast }) => {
     const handleToggle = async (key, newValue) => {
         setSavingSettings(prev => ({ ...prev, [key]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/scrape-shield`, {
+            const res = await af(`/api/zones/${zone.id}/scrape-shield`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', setting: key, value: newValue })

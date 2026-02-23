@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, ArrowRightLeft, AlertTriangle, ExternalLink, Plus, Edit2, Trash2, X } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const RedirectRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const RedirectRules = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [rules, setRules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -24,7 +25,7 @@ const RedirectRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/rules`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/rules`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setRules(data.rules || []);
@@ -42,7 +43,7 @@ const RedirectRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleToggleRule = async (ruleIdx, enabled) => {
         setTogglingRule(prev => ({ ...prev, [ruleIdx]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/rules`, {
+            const res = await af(`/api/zones/${zone.id}/rules`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'toggle_rule', ruleIndex: ruleIdx, enabled })
@@ -109,7 +110,7 @@ const RedirectRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         };
         try {
             const isEdit = editRuleIndex !== null;
-            const res = await fetch(`/api/zones/${zone.id}/rules`, {
+            const res = await af(`/api/zones/${zone.id}/rules`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify(isEdit
@@ -133,7 +134,7 @@ const RedirectRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleDelete = (idx) => {
         openConfirm(t('deleteRuleConfirm') || 'Delete this rule?', t('deleteRuleConfirm') || 'Are you sure you want to delete this rule?', async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/rules`, {
+                const res = await af(`/api/zones/${zone.id}/rules`, {
                     method: 'POST',
                     headers: getHeaders(true),
                     body: JSON.stringify({ action: 'delete_rule', ruleIndex: idx })

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Repeat, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const TransformRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const TransformRules = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [urlRewriteRules, setUrlRewriteRules] = useState([]);
     const [headerModRules, setHeaderModRules] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -35,7 +36,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/transform-rules`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/transform-rules`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setUrlRewriteRules(data.url_rewrite_rules || []);
@@ -55,7 +56,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         const key = `${phase}_${ruleIdx}`;
         setTogglingRule(prev => ({ ...prev, [key]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/transform-rules`, {
+            const res = await af(`/api/zones/${zone.id}/transform-rules`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'toggle_rule', phase, ruleIndex: ruleIdx, enabled })
@@ -137,7 +138,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         };
         try {
             const isEdit = editRuleIndex !== null;
-            const res = await fetch(`/api/zones/${zone.id}/transform-rules`, {
+            const res = await af(`/api/zones/${zone.id}/transform-rules`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({
@@ -163,7 +164,7 @@ const TransformRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleDelete = (phase, idx) => {
         openConfirm(t('deleteRuleConfirm') || 'Delete this rule?', t('deleteRuleConfirm') || 'Are you sure?', async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/transform-rules`, {
+                const res = await af(`/api/zones/${zone.id}/transform-rules`, {
                     method: 'POST',
                     headers: getHeaders(true),
                     body: JSON.stringify({ action: 'delete_rule', phase, ruleIndex: idx })

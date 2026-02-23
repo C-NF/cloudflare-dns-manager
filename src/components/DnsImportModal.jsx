@@ -3,7 +3,8 @@ import { X, Upload, Search, RefreshCw } from 'lucide-react';
 
 const VALID_TYPES = new Set(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA', 'PTR', 'SOA', 'SPF', 'TLSA', 'SSHFP', 'DS', 'NAPTR', 'HTTPS', 'SVCB', 'URI', 'LOC', 'CERT']);
 
-const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeaders, t, showToast }) => {
+const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [bulkImportJson, setBulkImportJson] = useState('');
     const [bulkImportPreview, setBulkImportPreview] = useState(null);
     const [bulkImportLoading, setBulkImportLoading] = useState(false);
@@ -218,7 +219,7 @@ const DnsImportModal = ({ zone, show, onClose, onImportComplete, auth, getHeader
         setBulkImportLoading(true);
         setBulkImportResult(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_import`, {
+            const res = await af(`/api/zones/${zone.id}/dns_import`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ records: bulkImportPreview })

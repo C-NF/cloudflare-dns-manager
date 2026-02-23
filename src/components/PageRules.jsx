@@ -20,7 +20,8 @@ const ACTION_TYPES = [
 
 const FORWARD_STATUS_CODES = [301, 302];
 
-const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const PageRules = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [rules, setRules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -38,7 +39,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/pagerules`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/pagerules`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setRules(data.rules || []);
@@ -119,7 +120,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
                 status: ruleStatus,
             };
             if (editRule) payload.ruleId = editRule.id;
-            const res = await fetch(`/api/zones/${zone.id}/pagerules`, {
+            const res = await af(`/api/zones/${zone.id}/pagerules`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify(payload)
@@ -141,7 +142,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleDelete = (rule) => {
         openConfirm(t('prDeleteConfirm'), async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/pagerules`, {
+                const res = await af(`/api/zones/${zone.id}/pagerules`, {
                     method: 'POST', headers: getHeaders(true),
                     body: JSON.stringify({ action: 'delete', ruleId: rule.id })
                 });
@@ -156,7 +157,7 @@ const PageRules = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         const newStatus = rule.status === 'active' ? 'disabled' : 'active';
         setTogglingRule(prev => ({ ...prev, [rule.id]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/pagerules`, {
+            const res = await af(`/api/zones/${zone.id}/pagerules`, {
                 method: 'POST', headers: getHeaders(true),
                 body: JSON.stringify({ action: 'toggle', ruleId: rule.id, status: newStatus })
             });

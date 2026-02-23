@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileWarning, AlertTriangle, ExternalLink, Edit2, X } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const CustomPages = ({ zone, getHeaders, t, showToast }) => {
+const CustomPages = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [pages, setPages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -14,7 +15,7 @@ const CustomPages = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/custom-pages`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/custom-pages`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setPages(data.pages || []);
@@ -37,7 +38,7 @@ const CustomPages = ({ zone, getHeaders, t, showToast }) => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/custom-pages`, {
+            const res = await af(`/api/zones/${zone.id}/custom-pages`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', pageId: editPage.id, url: editUrl.trim(), state: editUrl.trim() ? 'customized' : 'default' })

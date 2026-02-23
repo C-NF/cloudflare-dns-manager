@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Mail, Plus, Edit2, Trash2, AlertTriangle, X, ExternalLink } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const EmailRouting = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [rules, setRules] = useState([]);
     const [routingEnabled, setRoutingEnabled] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -17,7 +18,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/email-routing`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/email-routing`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setRules(data.rules || []);
@@ -62,7 +63,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
                 enabled: true,
             };
             if (editRule) payload.ruleId = editRule.tag;
-            const res = await fetch(`/api/zones/${zone.id}/email-routing`, {
+            const res = await af(`/api/zones/${zone.id}/email-routing`, {
                 method: 'POST', headers: getHeaders(true), body: JSON.stringify(payload)
             });
             const data = await res.json();
@@ -75,7 +76,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleDelete = (rule) => {
         openConfirm(t('erDeleteConfirm') || 'Delete this email routing rule?', async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/email-routing`, {
+                const res = await af(`/api/zones/${zone.id}/email-routing`, {
                     method: 'POST', headers: getHeaders(true),
                     body: JSON.stringify({ action: 'delete', ruleId: rule.tag })
                 });
@@ -89,7 +90,7 @@ const EmailRouting = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleToggleRouting = async () => {
         setTogglingEnabled(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/email-routing`, {
+            const res = await af(`/api/zones/${zone.id}/email-routing`, {
                 method: 'POST', headers: getHeaders(true),
                 body: JSON.stringify({ action: routingEnabled ? 'disable_routing' : 'enable_routing' })
             });

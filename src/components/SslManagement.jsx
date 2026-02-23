@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Shield, ShieldCheck, ShieldAlert, ShieldOff, ToggleLeft, ToggleRight, ChevronDown, AlertTriangle, CheckCircle } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const SslManagement = ({ zone, getHeaders, t, showToast }) => {
+const SslManagement = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [sslMode, setSslMode] = useState(null);
     const [alwaysHttps, setAlwaysHttps] = useState(null);
     const [minTls, setMinTls] = useState(null);
@@ -18,7 +19,7 @@ const SslManagement = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/ssl`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/ssl`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSslMode(data.ssl?.value || 'off');
@@ -43,7 +44,7 @@ const SslManagement = ({ zone, getHeaders, t, showToast }) => {
     const updateSetting = async (setting, value, setUpdating) => {
         setUpdating(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/ssl`, {
+            const res = await af(`/api/zones/${zone.id}/ssl`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ setting, value })

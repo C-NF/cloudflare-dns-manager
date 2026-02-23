@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw, GitCompare, ArrowRight, X, Plus, Minus, ArrowLeftRight, Share2, Copy, Check } from 'lucide-react';
 import { getAuthHeaders } from '../utils/auth.ts';
 
-const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, records }) => {
+const DnsHistoryTab = ({ zone, auth, authFetch, onClose, onRollbackComplete, t, showToast, records }) => {
+    const af = authFetch || fetch;
     const [snapshots, setSnapshots] = useState([]);
     const [snapshotsLoading, setSnapshotsLoading] = useState(false);
     const [rollbackLoading, setRollbackLoading] = useState(null);
@@ -26,7 +27,7 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
     const fetchSnapshots = async (page = 1) => {
         setSnapshotsLoading(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_history?page=${page}&per_page=${snapshotPerPage}`, {
+            const res = await af(`/api/zones/${zone.id}/dns_history?page=${page}&per_page=${snapshotPerPage}`, {
                 headers: getAuthHeaders(auth)
             });
             if (res.ok) {
@@ -48,7 +49,7 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
         if (!confirm(t('rollbackConfirm'))) return;
         setRollbackLoading(snapshotKey);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_history`, {
+            const res = await af(`/api/zones/${zone.id}/dns_history`, {
                 method: 'POST',
                 headers: { ...getAuthHeaders(auth), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ snapshotKey })
@@ -77,7 +78,7 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
         setDiffLoading(snapshotKey);
         try {
             // Compare snapshot (from) against current live records (to)
-            const res = await fetch(
+            const res = await af(
                 `/api/zones/${zone.id}/dns_history?action=diff&from=${encodeURIComponent(snapshotKey)}&to=live`,
                 { headers: getAuthHeaders(auth) }
             );
@@ -103,7 +104,7 @@ const DnsHistoryTab = ({ zone, auth, onClose, onRollbackComplete, t, showToast, 
         setShareForKey(null);
         setShareCopied(false);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/share-snapshot`, {
+            const res = await af(`/api/zones/${zone.id}/share-snapshot`, {
                 method: 'POST',
                 headers: { ...getAuthHeaders(auth), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ snapshotKey })

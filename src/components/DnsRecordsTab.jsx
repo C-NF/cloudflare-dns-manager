@@ -22,10 +22,12 @@ const DnsRecordsTab = ({
     onShowHistory,
     onUpdatePriority,
     getHeaders,
+    authFetch,
     t,
     showToast,
     openConfirm
 }) => {
+    const af = authFetch || fetch;
     const [importLoading, setImportLoading] = useState(false);
     const [expandedRecords, setExpandedRecords] = useState(new Set());
     const [groupBy, setGroupBy] = useState(() => localStorage.getItem(GROUP_BY_KEY) || 'none');
@@ -104,7 +106,7 @@ const DnsRecordsTab = ({
 
     const deleteRecord = async (id) => {
         openConfirm(t('confirmTitle'), t('confirmDelete'), async () => {
-            const res = await fetch(`/api/zones/${zone.id}/dns_records?id=${id}`, {
+            const res = await af(`/api/zones/${zone.id}/dns_records?id=${id}`, {
                 method: 'DELETE',
                 headers: getHeaders(true)
             });
@@ -127,7 +129,7 @@ const DnsRecordsTab = ({
         ));
 
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
+            const res = await af(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
                 method: 'PATCH',
                 headers: getHeaders(true),
                 body: JSON.stringify({ proxied: !originalStatus })
@@ -156,7 +158,7 @@ const DnsRecordsTab = ({
     const handleExport = async () => {
         try {
             const headers = getHeaders();
-            const res = await fetch(`/api/zones/${zone.id}/dns_export`, { headers });
+            const res = await af(`/api/zones/${zone.id}/dns_export`, { headers });
             if (!res.ok) throw new Error('Export failed');
 
             const blob = await res.blob();
@@ -183,7 +185,7 @@ const DnsRecordsTab = ({
         formData.append('proxied', 'true');
 
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_import`, {
+            const res = await af(`/api/zones/${zone.id}/dns_import`, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: formData
@@ -207,7 +209,7 @@ const DnsRecordsTab = ({
         if (count === 0) return;
         openConfirm(t('confirmTitle'), t('confirmBatchDelete').replace('{count}', count), async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/dns_batch`, {
+                const res = await af(`/api/zones/${zone.id}/dns_batch`, {
                     method: 'POST',
                     headers: getHeaders(true),
                     body: JSON.stringify({
@@ -312,7 +314,7 @@ const DnsRecordsTab = ({
                 payload.priority = record.priority;
             }
 
-            const res = await fetch(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
+            const res = await af(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
                 method: 'PATCH',
                 headers: getHeaders(true),
                 body: JSON.stringify(payload)
@@ -331,7 +333,7 @@ const DnsRecordsTab = ({
         }
         setInlineSaving(false);
         cancelInlineEdit();
-    }, [editingCell, editValue, inlineSaving, zone?.id, getHeaders, fetchDNS, showToast, t, cancelInlineEdit]);
+    }, [editingCell, editValue, inlineSaving, zone?.id, getHeaders, af, fetchDNS, showToast, t, cancelInlineEdit]);
 
     const handleInlineKeyDown = useCallback((e, record) => {
         if (e.key === 'Enter') {

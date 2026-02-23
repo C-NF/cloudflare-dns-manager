@@ -36,7 +36,8 @@ const SETTINGS_META = [
     },
 ];
 
-const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
+const SpeedOptimization = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -49,7 +50,7 @@ const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/speed`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/speed`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSettings(data.settings);
@@ -72,7 +73,7 @@ const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
         setBulkLoading(true);
         setBulkResults(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/speed`, {
+            const res = await af(`/api/zones/${zone.id}/speed`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action })
@@ -97,7 +98,7 @@ const SpeedOptimization = ({ zone, getHeaders, t, showToast }) => {
     const handleToggle = async (settingKey, newValue) => {
         setSavingSettings(prev => ({ ...prev, [settingKey]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/speed`, {
+            const res = await af(`/api/zones/${zone.id}/speed`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', setting: settingKey, value: newValue })

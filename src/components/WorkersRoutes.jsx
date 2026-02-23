@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Code, Plus, Edit2, Trash2, AlertTriangle, X } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const WorkersRoutes = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [routes, setRoutes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -15,7 +16,7 @@ const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/workers-routes`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/workers-routes`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setRoutes(data.routes || []);
@@ -49,7 +50,7 @@ const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
             const action = editRoute ? 'update' : 'create';
             const payload = { action, pattern: form.pattern.trim(), script: form.script.trim() || null };
             if (editRoute) payload.routeId = editRoute.id;
-            const res = await fetch(`/api/zones/${zone.id}/workers-routes`, {
+            const res = await af(`/api/zones/${zone.id}/workers-routes`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify(payload)
@@ -73,7 +74,7 @@ const WorkersRoutes = ({ zone, getHeaders, t, showToast, openConfirm }) => {
             t('wrDeleteConfirm'),
             async () => {
                 try {
-                    const res = await fetch(`/api/zones/${zone.id}/workers-routes`, {
+                    const res = await af(`/api/zones/${zone.id}/workers-routes`, {
                         method: 'POST',
                         headers: getHeaders(true),
                         body: JSON.stringify({ action: 'delete', routeId: route.id })

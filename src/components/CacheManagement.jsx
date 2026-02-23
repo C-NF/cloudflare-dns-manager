@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, ToggleLeft, ToggleRight, Trash2, Link, AlertTriangle } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const CacheManagement = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [devMode, setDevMode] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -17,7 +18,7 @@ const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/cache`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/cache`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 if (data.development_mode) {
@@ -75,7 +76,7 @@ const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         const newValue = devMode?.value === 'on' ? 'off' : 'on';
         setToggling(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/cache`, {
+            const res = await af(`/api/zones/${zone.id}/cache`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'toggle_dev_mode', value: newValue })
@@ -98,7 +99,7 @@ const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         openConfirm(t('confirmTitle'), t('cachePurgeAllConfirm'), async () => {
             setPurgingAll(true);
             try {
-                const res = await fetch(`/api/zones/${zone.id}/cache`, {
+                const res = await af(`/api/zones/${zone.id}/cache`, {
                     method: 'POST',
                     headers: getHeaders(true),
                     body: JSON.stringify({ action: 'purge_all' })
@@ -128,7 +129,7 @@ const CacheManagement = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         }
         setPurgingUrls(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/cache`, {
+            const res = await af(`/api/zones/${zone.id}/cache`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'purge_urls', urls })

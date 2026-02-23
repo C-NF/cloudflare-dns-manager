@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, ShieldAlert, Shield, ShieldOff, ShieldCheck, AlertTriangle, CheckCircle, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Bot } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
+const SecuritySettings = ({ zone, getHeaders, authFetch, t, showToast, openConfirm }) => {
+    const af = authFetch || fetch;
     const [settings, setSettings] = useState(null);
     const [firewallRules, setFirewallRules] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -18,7 +19,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/security`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/security`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSettings(data.settings);
@@ -37,7 +38,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleUpdate = async (setting, value) => {
         setSavingSettings(prev => ({ ...prev, [setting]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/security`, {
+            const res = await af(`/api/zones/${zone.id}/security`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', setting, value })
@@ -58,7 +59,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleToggleFirewallRule = async (ruleId, paused) => {
         setSavingSettings(prev => ({ ...prev, [`fw_${ruleId}`]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/security`, {
+            const res = await af(`/api/zones/${zone.id}/security`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'toggle_firewall_rule', ruleId, paused })
@@ -101,7 +102,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
             const payload = editingRule
                 ? { action: 'update_firewall_rule', ruleId: editingRule.id, filterId: editingRule.filter?.id, ...fwForm }
                 : { action: 'create_firewall_rule', ...fwForm };
-            const res = await fetch(`/api/zones/${zone.id}/security`, {
+            const res = await af(`/api/zones/${zone.id}/security`, {
                 method: 'POST', headers: getHeaders(true), body: JSON.stringify(payload)
             });
             const data = await res.json();
@@ -119,7 +120,7 @@ const SecuritySettings = ({ zone, getHeaders, t, showToast, openConfirm }) => {
     const handleFwDelete = (rule) => {
         openConfirm(t('secFwDeleteConfirm') || 'Delete this firewall rule?', async () => {
             try {
-                const res = await fetch(`/api/zones/${zone.id}/security`, {
+                const res = await af(`/api/zones/${zone.id}/security`, {
                     method: 'POST', headers: getHeaders(true),
                     body: JSON.stringify({ action: 'delete_firewall_rule', ruleId: rule.id })
                 });

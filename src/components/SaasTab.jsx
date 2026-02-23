@@ -2,7 +2,8 @@ import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'rea
 import { Server, Edit2, Trash2, RefreshCw, AlertCircle, X, Copy } from 'lucide-react';
 import CustomSelect from './CustomSelect.jsx';
 
-const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loading, fetchHostnames, getHeaders, t, showToast, openConfirm }, ref) {
+const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loading, fetchHostnames, getHeaders, authFetch, t, showToast, openConfirm }, ref) {
+    const af = authFetch || fetch;
     const initialSaaS = {
         hostname: '',
         ssl: {
@@ -27,7 +28,7 @@ const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loa
     const fetchFallback = async () => {
         setError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/fallback_origin`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/fallback_origin`, { headers: getHeaders() });
             const data = await res.json();
             if (data.result) {
                 setFallback({
@@ -64,7 +65,7 @@ const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loa
         e.preventDefault();
         setFallbackLoading(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/fallback_origin`, {
+            const res = await af(`/api/zones/${zone.id}/fallback_origin`, {
                 method: 'PUT',
                 headers: getHeaders(true),
                 body: JSON.stringify({ origin: fallback.value })
@@ -124,7 +125,7 @@ const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loa
             payload.custom_origin_snihost = null;
         }
 
-        const res = await fetch(url, {
+        const res = await af(url, {
             method,
             headers: getHeaders(true),
             body: JSON.stringify(payload)
@@ -143,7 +144,7 @@ const SaasTab = forwardRef(function SaasTab({ zone, hostnames, filteredSaaS, loa
 
     const deleteSaaS = async (id) => {
         openConfirm(t('confirmTitle'), t('confirmDeleteSaaS'), async () => {
-            const res = await fetch(`/api/zones/${zone.id}/custom_hostnames?id=${id}`, {
+            const res = await af(`/api/zones/${zone.id}/custom_hostnames?id=${id}`, {
                 method: 'DELETE',
                 headers: getHeaders(true)
             });

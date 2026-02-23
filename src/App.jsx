@@ -160,6 +160,27 @@ const App = () => {
         return null;
     };
 
+    // Fetch wrapper that auto-injects auth headers and refreshes JWT on 401
+    const authFetch = async (url, options = {}) => {
+        const currentAuth = authRef.current;
+        if (!currentAuth) return fetch(url, options);
+
+        const withType = !!(options.body && !options.headers?.['Content-Type'] && typeof options.body === 'string');
+        const mergedHeaders = { ...getAuthHeaders(currentAuth, withType), ...options.headers };
+        const res = await fetch(url, { ...options, headers: mergedHeaders });
+
+        if (res.status === 401 && currentAuth.mode === 'server' && currentAuth.refreshToken) {
+            const refreshed = await tryRefreshToken(currentAuth);
+            if (refreshed) {
+                setAuth(refreshed);
+                persistAuth(refreshed);
+                const retryHeaders = { ...getAuthHeaders(refreshed, withType), ...options.headers };
+                return fetch(url, { ...options, headers: retryHeaders });
+            }
+        }
+        return res;
+    };
+
     const handleLogout = () => {
         if (auth && auth.mode === 'server' && auth.token) {
             fetch('/api/logout', {
@@ -1454,7 +1475,7 @@ const App = () => {
                 <ChangePasswordModal show={showChangePassword} onClose={() => setShowChangePassword(false)} auth={auth} t={t} showToast={showToast} />
                 <PasskeyModal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} auth={auth} t={t} showToast={showToast} />
                 <TotpModal show={showTotpModal} onClose={() => setShowTotpModal(false)} auth={auth} t={t} showToast={showToast} />
-                <BulkOperationsModal show={showBulkModal} onClose={() => setShowBulkModal(false)} auth={auth} t={t} showToast={showToast} zones={zones} />
+                <BulkOperationsModal show={showBulkModal} onClose={() => setShowBulkModal(false)} auth={auth} authFetch={authFetch} t={t} showToast={showToast} zones={zones} />
                 <MonitorsModal show={showMonitorsModal} onClose={() => setShowMonitorsModal(false)} zones={zones} />
                 <UserManagement show={showUserManagement} onClose={() => setShowUserManagement(false)} auth={auth} t={t} showToast={showToast} />
             </ErrorBoundary>
@@ -1884,6 +1905,7 @@ const App = () => {
                             ref={zoneDetailRef}
                             zone={selectedZone}
                             auth={auth}
+                            authFetch={authFetch}
                             tab={activeTab}
                             onBack={() => { }}
                             t={t}

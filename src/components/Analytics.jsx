@@ -25,7 +25,8 @@ const formatBytes = (bytes) => {
     return bytes + ' B';
 };
 
-const Analytics = ({ zone, getHeaders, t, showToast }) => {
+const Analytics = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -35,7 +36,7 @@ const Analytics = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/analytics?since=${timeRange}`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/analytics?since=${timeRange}`, { headers: getHeaders() });
             const result = await res.json();
             if (result.success) {
                 setData(result.data);

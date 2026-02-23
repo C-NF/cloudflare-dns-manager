@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Globe, AlertTriangle, Shield, CheckCircle, XCircle } from 'lucide-react';
 import TabSkeleton from './TabSkeleton';
 
-const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
+const DnsSettings = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [settings, setSettings] = useState(null);
     const [dnssec, setDnssec] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -13,7 +14,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns-settings`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/dns-settings`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSettings(data.settings);
@@ -34,7 +35,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
     const handleUpdate = async (setting, value) => {
         setSavingSettings(prev => ({ ...prev, [setting]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns-settings`, {
+            const res = await af(`/api/zones/${zone.id}/dns-settings`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', setting, value })
@@ -60,7 +61,7 @@ const DnsSettings = ({ zone, getHeaders, t, showToast }) => {
     const handleDnssec = async (enable) => {
         setSavingSettings(prev => ({ ...prev, dnssec: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns-settings`, {
+            const res = await af(`/api/zones/${zone.id}/dns-settings`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: enable ? 'enable_dnssec' : 'disable_dnssec' })

@@ -18,7 +18,8 @@ const SETTING_OPTIONS = [
     { value: 'privacy_pass', label: 'Privacy Pass', type: 'toggle' },
 ];
 
-const BulkOperationsModal = ({ show, onClose, auth, t, showToast, zones }) => {
+const BulkOperationsModal = ({ show, onClose, auth, authFetch, t, showToast, zones }) => {
+    const af = authFetch || fetch;
     const [operation, setOperation] = useState('create');
     const [zoneMode, setZoneMode] = useState('all');
     const [selectedZones, setSelectedZones] = useState([]);
@@ -64,7 +65,7 @@ const BulkOperationsModal = ({ show, onClose, auth, t, showToast, zones }) => {
                     setting: selectedSetting,
                     value: settingValue
                 };
-                const res = await fetch('/api/bulk_settings', {
+                const res = await af('/api/bulk_settings', {
                     method: 'POST',
                     headers: getAuthHeaders(auth, true),
                     body: JSON.stringify(body)
@@ -88,7 +89,7 @@ const BulkOperationsModal = ({ show, onClose, auth, t, showToast, zones }) => {
                     record
                 };
 
-                const res = await fetch('/api/dns_bulk', {
+                const res = await af('/api/dns_bulk', {
                     method: 'POST',
                     headers: getAuthHeaders(auth, true),
                     body: JSON.stringify(body)

@@ -13,7 +13,8 @@ const SETTINGS_META = [
     { key: 'max_upload', type: 'number', descKey: 'netMaxUploadDesc', suffix: 'MB' },
 ];
 
-const NetworkSettings = ({ zone, getHeaders, t, showToast }) => {
+const NetworkSettings = ({ zone, getHeaders, authFetch, t, showToast }) => {
+    const af = authFetch || fetch;
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(null);
@@ -23,7 +24,7 @@ const NetworkSettings = ({ zone, getHeaders, t, showToast }) => {
         setLoading(true);
         setFetchError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/network`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/network`, { headers: getHeaders() });
             const data = await res.json();
             if (data.success) {
                 setSettings(data.settings);
@@ -41,7 +42,7 @@ const NetworkSettings = ({ zone, getHeaders, t, showToast }) => {
     const handleToggle = async (key, newValue) => {
         setSavingSettings(prev => ({ ...prev, [key]: true }));
         try {
-            const res = await fetch(`/api/zones/${zone.id}/network`, {
+            const res = await af(`/api/zones/${zone.id}/network`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({ action: 'update', setting: key, value: newValue })

@@ -27,7 +27,7 @@ const EmailRouting = React.lazy(() => import('./EmailRouting.jsx'));
 const CustomPages = React.lazy(() => import('./CustomPages.jsx'));
 const DnsAnalytics = React.lazy(() => import('./DnsAnalytics.jsx'));
 
-const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones }, ref) {
+const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, authFetch, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones }, ref) {
     const [records, setRecords] = useState([]);
     const [hostnames, setHostnames] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -100,6 +100,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
     }, [showDNSModal, showBulkImportModal, confirmModal.show, showScheduledModal]);
 
     const getHeaders = (withType = false) => getAuthHeaders(auth, withType);
+    const af = authFetch || fetch; // fallback for client mode (no authFetch)
 
     const parseApiError = (status, data, networkError) => {
         if (networkError) return { type: 'network', message: networkError.message || 'Network error' };
@@ -113,7 +114,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         if (deleteZoneConfirm !== zone.name) return;
         setDeleteZoneLoading(true);
         try {
-            const res = await fetch(`/api/zones/${zone.id}`, {
+            const res = await af(`/api/zones/${zone.id}`, {
                 method: 'DELETE',
                 headers: getHeaders(true)
             });
@@ -136,7 +137,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
     const fetchScheduledCount = async () => {
         if (auth.mode !== 'server') return;
         try {
-            const res = await fetch('/api/scheduled-changes', { headers: getHeaders() });
+            const res = await af('/api/scheduled-changes', { headers: getHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setScheduledCount((data.changes || []).length);
@@ -163,7 +164,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         }
 
         try {
-            const res = await fetch('/api/scheduled-changes', {
+            const res = await af('/api/scheduled-changes', {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: JSON.stringify({
@@ -194,7 +195,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_records`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/dns_records`, { headers: getHeaders() });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 setError(parseApiError(res.status, data));
@@ -214,7 +215,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`/api/zones/${zone.id}/custom_hostnames`, { headers: getHeaders() });
+            const res = await af(`/api/zones/${zone.id}/custom_hostnames`, { headers: getHeaders() });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 setError(parseApiError(res.status, data));
@@ -265,7 +266,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
             }
         }
 
-        const res = await fetch(url, {
+        const res = await af(url, {
             method,
             headers: getHeaders(true),
             body: JSON.stringify(payload)
@@ -293,7 +294,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         formData.append('proxied', 'true');
 
         try {
-            const res = await fetch(`/api/zones/${zone.id}/dns_import`, {
+            const res = await af(`/api/zones/${zone.id}/dns_import`, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: formData
@@ -315,7 +316,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
     const handleExport = async () => {
         try {
             const headers = getHeaders();
-            const res = await fetch(`/api/zones/${zone.id}/dns_export`, { headers });
+            const res = await af(`/api/zones/${zone.id}/dns_export`, { headers });
             if (!res.ok) throw new Error('Export failed');
 
             const blob = await res.blob();
@@ -338,7 +339,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         openConfirm(t('confirmTitle'), t('confirmBatchDelete').replace('{count}', count), async () => {
             setLoading(true);
             try {
-                const res = await fetch(`/api/zones/${zone.id}/dns_batch`, {
+                const res = await af(`/api/zones/${zone.id}/dns_batch`, {
                     method: 'POST',
                     headers: getHeaders(true),
                     body: JSON.stringify({
@@ -374,7 +375,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
         try {
             const results = await Promise.all(
                 updatedRecords.map(record =>
-                    fetch(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
+                    af(`/api/zones/${zone.id}/dns_records?id=${record.id}`, {
                         method: 'PATCH',
                         headers: getHeaders(true),
                         body: JSON.stringify({ priority: record.priority })
@@ -605,67 +606,67 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
 
             {tab === 'speed' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <SpeedOptimization zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <SpeedOptimization zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'ssl' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <SslManagement zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <SslManagement zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'cache' ? (
                 <React.Suspense fallback={<TabSkeleton variant="cache" />}>
-                    <CacheManagement zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <CacheManagement zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'pagerules' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <PageRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <PageRules zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'security' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <SecuritySettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={(msg, cb) => openConfirm('', msg, cb)} />
+                    <SecuritySettings zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={(msg, cb) => openConfirm('', msg, cb)} />
                 </React.Suspense>
             ) : tab === 'network' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <NetworkSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <NetworkSettings zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'scrapeshield' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <ScrapeShield zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <ScrapeShield zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'workers' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <WorkersRoutes zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <WorkersRoutes zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'rules' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <RedirectRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <RedirectRules zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'analytics' ? (
                 <React.Suspense fallback={<TabSkeleton variant="analytics" />}>
-                    <Analytics zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <Analytics zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'dnssettings' ? (
                 <React.Suspense fallback={<TabSkeleton variant="settings" />}>
-                    <DnsSettings zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <DnsSettings zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'transform' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <TransformRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <TransformRules zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'origin' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <OriginRules zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <OriginRules zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'email' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <EmailRouting zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} openConfirm={openConfirm} />
+                    <EmailRouting zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} openConfirm={openConfirm} />
                 </React.Suspense>
             ) : tab === 'custompages' ? (
                 <React.Suspense fallback={<TabSkeleton variant="list" />}>
-                    <CustomPages zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <CustomPages zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : tab === 'dnsanalytics' ? (
                 <React.Suspense fallback={<TabSkeleton variant="analytics" />}>
-                    <DnsAnalytics zone={zone} getHeaders={getHeaders} t={t} showToast={showToast} />
+                    <DnsAnalytics zone={zone} getHeaders={getHeaders} authFetch={af} t={t} showToast={showToast} />
                 </React.Suspense>
             ) : !error && !(loading && records.length === 0 && hostnames.length === 0) ? (
             <div className="glass-card" style={{ padding: '1.25rem', overflow: 'hidden' }}>
@@ -749,6 +750,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
                     <DnsHistoryTab
                         zone={zone}
                         auth={auth}
+                        authFetch={af}
                         onClose={() => setShowHistory(false)}
                         onRollbackComplete={() => fetchDNS()}
                         t={t}
@@ -774,7 +776,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
                             onOpenBulkImport={() => setShowBulkImportModal(true)}
                             onShowHistory={() => setShowHistory(true)}
                             onUpdatePriority={handleUpdatePriority}
-                            getHeaders={getHeaders}
+                            getHeaders={getHeaders} authFetch={af}
                             t={t}
                             showToast={showToast}
                             openConfirm={openConfirm}
@@ -787,7 +789,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
                             filteredSaaS={filteredSaaS}
                             loading={loading}
                             fetchHostnames={fetchHostnames}
-                            getHeaders={getHeaders}
+                            getHeaders={getHeaders} authFetch={af}
                             t={t}
                             showToast={showToast}
                             openConfirm={openConfirm}
@@ -817,7 +819,7 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, tab, onBack, t, 
                 onClose={() => setShowBulkImportModal(false)}
                 onImportComplete={() => fetchDNS()}
                 auth={auth}
-                getHeaders={getHeaders}
+                getHeaders={getHeaders} authFetch={af}
                 t={t}
                 showToast={showToast}
             />
