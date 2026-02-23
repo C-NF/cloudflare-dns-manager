@@ -423,11 +423,13 @@ const App = () => {
         batchCache.clear();
 
         // Helper: fetch zones and extract result + authType from response
+        let got401 = false;
         const fetchZonesApi = (headers) => fetch('/api/zones', { headers }).then(async res => {
             if (res.ok) {
                 const data = await res.json();
                 return { zones: data.result || [], authType: data._authType || 'api_token' };
             }
+            if (res.status === 401) got401 = true;
             return { zones: [], authType: 'api_token' };
         }).catch(() => ({ zones: [], authType: 'api_token' }));
 
@@ -481,6 +483,22 @@ const App = () => {
 
         const results = await Promise.all(promises);
         for (const zones of results) allZones.push(...zones);
+
+        // If all server-mode fetches got 401 and no zones, session is expired — auto-logout
+        if (got401 && allZones.length === 0 && authData.mode === 'server') {
+            if (authData.refreshToken) {
+                const refreshed = await tryRefreshToken(authData);
+                if (refreshed) {
+                    setAuth(refreshed);
+                    persistAuth(refreshed);
+                    setLoading(false);
+                    return fetchZones(refreshed);
+                }
+            }
+            setLoading(false);
+            doLogout();
+            return;
+        }
 
         // Deduplicate zones by id (same zone might appear under different accounts)
         const seen = new Set();
