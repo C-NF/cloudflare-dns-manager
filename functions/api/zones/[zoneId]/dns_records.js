@@ -55,6 +55,12 @@ export async function onRequestGet(context) {
     });
 
     const data = await response.json();
+
+    // Cache DNS record count to KV (fire-and-forget)
+    if (data.success && data.result && context.env.CF_DNS_KV) {
+        context.env.CF_DNS_KV.put(`DNS_COUNT:${zoneId}`, String(data.result.length), { expirationTtl: 86400 * 30 }).catch(() => {});
+    }
+
     return new Response(JSON.stringify(data), {
         status: response.status,
         headers: { 'Content-Type': 'application/json' }

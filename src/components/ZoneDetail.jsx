@@ -27,7 +27,7 @@ const EmailRouting = React.lazy(() => import('./EmailRouting.jsx'));
 const CustomPages = React.lazy(() => import('./CustomPages.jsx'));
 const DnsAnalytics = React.lazy(() => import('./DnsAnalytics.jsx'));
 
-const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, authFetch, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones }, ref) {
+const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, authFetch, tab, onBack, t, showToast, onToggleZoneStorage, zoneStorageLoading, onUnbindZone, onRefreshZones, onDnsCountUpdate }, ref) {
     const [records, setRecords] = useState([]);
     const [hostnames, setHostnames] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -203,7 +203,15 @@ const ZoneDetail = forwardRef(function ZoneDetail({ zone, auth, authFetch, tab, 
                 return;
             }
             const data = await res.json();
-            setRecords((data.result || []).sort((a, b) => new Date(b.modified_on) - new Date(a.modified_on)));
+            const recs = data.result || [];
+            setRecords(recs.sort((a, b) => new Date(b.modified_on) - new Date(a.modified_on)));
+            // Update record count for sidebar/dashboard display
+            try {
+                const counts = JSON.parse(localStorage.getItem('dns_record_counts') || '{}');
+                counts[zone.id] = recs.length;
+                localStorage.setItem('dns_record_counts', JSON.stringify(counts));
+            } catch {}
+            if (onDnsCountUpdate) onDnsCountUpdate(zone.id, recs.length);
         } catch (e) {
             console.error('Failed to fetch DNS records:', e);
             setError(parseApiError(null, null, e));

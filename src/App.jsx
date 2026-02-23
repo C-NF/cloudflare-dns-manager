@@ -51,6 +51,9 @@ const App = () => {
     const authRef = useRef(null);
     const zoneFetchCache = useRef(new Map());
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [dnsRecordCounts, setDnsRecordCounts] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('dns_record_counts') || '{}'); } catch { return {}; }
+    });
     const [sidebarOpen, setSidebarOpen] = useState(false);
     // Hash-based routing: /#/zone/{name}/{tab} or /#/overview
     const parseHash = () => {
@@ -517,6 +520,23 @@ const App = () => {
 
         const sortedZones = visibleZones.sort((a, b) => new Date(b.modified_on) - new Date(a.modified_on));
         setZones(sortedZones);
+
+        // Fetch DNS record counts from server (fire-and-forget)
+        if (sortedZones.length > 0 && authData.mode === 'server') {
+            authFetch('/api/dns-counts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ zoneIds: sortedZones.map(z => z.id) })
+            }).then(r => r.json()).then(data => {
+                if (data.success && data.counts) {
+                    setDnsRecordCounts(prev => {
+                        const merged = { ...prev, ...data.counts };
+                        try { localStorage.setItem('dns_record_counts', JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                }
+            }).catch(() => {});
+        }
 
         if (sortedZones.length > 0) {
             // Check for pending route from URL hash
@@ -1645,6 +1665,9 @@ const App = () => {
                                                     >
                                                         <span className="zone-dropdown-dot" style={{ background: 'var(--success)' }} />
                                                         <span className="zone-dropdown-item-name">{z.name}</span>
+                                                        {dnsRecordCounts[z.id] != null && (
+                                                            <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginLeft: 'auto', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{dnsRecordCounts[z.id]}</span>
+                                                        )}
                                                     </button>
                                                     <button
                                                         onClick={(e) => handleUnbindZoneFromDropdown(e, z.id)}
@@ -1831,6 +1854,16 @@ const App = () => {
                                 {t('loginAnotherAccount')}
                             </button>
                         )}
+                        <a
+                            href="https://github.com/1MrC1/cloudflare-dns-manager"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="sidebar-footer-btn muted"
+                            style={{ textDecoration: 'none', justifyContent: 'center', fontSize: '0.65rem', opacity: 0.5, marginTop: '0.25rem' }}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                            GitHub
+                        </a>
                     </div>
                 </aside>
                 <div className={`sidebar-backdrop${sidebarOpen ? ' sidebar-backdrop--visible' : ''}`} onClick={() => setSidebarOpen(false)} />
@@ -1912,7 +1945,7 @@ const App = () => {
                     /* === OVERVIEW / DASHBOARD === */
                     <div className="container page-enter" key="overview" style={{ paddingBottom: 0 }}>
                         <ErrorBoundary t={t}>
-                            <Dashboard zones={zones} />
+                            <Dashboard zones={zones} dnsRecordCounts={dnsRecordCounts} />
                         </ErrorBoundary>
                     </div>
                 ) : selectedZone ? (
@@ -1932,6 +1965,7 @@ const App = () => {
                             zoneStorageLoading={zoneStorageLoading}
                             onUnbindZone={handleUnbindZone}
                             onRefreshZones={() => fetchZones(auth)}
+                            onDnsCountUpdate={(zoneId, count) => setDnsRecordCounts(prev => ({ ...prev, [zoneId]: count }))}
                         />
                     </ErrorBoundary>
                     </div>

@@ -4,7 +4,7 @@ import { ApiClient, ApiError } from '../utils/api.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useTheme } from '../contexts/ThemeContext.jsx';
 
-const Dashboard = ({ zones }) => {
+const Dashboard = ({ zones, dnsRecordCounts }) => {
     const { auth } = useAuth();
     const { t } = useTheme();
     const [auditLog, setAuditLog] = useState([]);
@@ -81,7 +81,7 @@ const Dashboard = ({ zones }) => {
                         <Layers size={20} color="var(--badge-blue-text)" />
                     </div>
                     <div className="dashboard-card-content">
-                        <span className="dashboard-card-value">{t('dnsRecords')}</span>
+                        <span className="dashboard-card-value">{(() => { const total = zones.reduce((sum, z) => sum + (dnsRecordCounts?.[z.id] || 0), 0); return total > 0 ? total : '-'; })()}</span>
                         <span className="dashboard-card-label">{t('dashboardRecords')}</span>
                     </div>
                 </div>

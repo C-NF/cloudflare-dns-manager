@@ -75,10 +75,10 @@ describe('Dashboard component', () => {
         expect(screen.getByText('0')).toBeInTheDocument();
     });
 
-    it('renders dnsRecords translation key as records card value', () => {
+    it('renders DNS record count or dash when no counts available', () => {
         renderWithProviders(<Dashboard zones={defaultZones} />);
-        // The records card shows t('dnsRecords') as its value
-        expect(screen.getByText('dnsRecords')).toBeInTheDocument();
+        // With no dnsRecordCounts prop, shows '-'
+        expect(screen.getByText('-')).toBeInTheDocument();
     });
 
     it('does not show activity section for non-admin client mode', () => {
