@@ -1855,7 +1855,7 @@ const App = () => {
                             </button>
                         )}
                         <a
-                            href="https://github.com/1MrC1/cloudflare-dns-manager"
+                            href="https://github.com/C-NF/cloudflare-dns-manager"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="sidebar-footer-btn muted"
