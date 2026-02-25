@@ -55,89 +55,89 @@
 - Toast 通知
 - 離線偵測橫幅
 
-## 快速開始
+## 部署
 
-### 前置需求
-
-- Node.js 18+
-- 一個至少有一個網域的 Cloudflare 帳戶
-
-### 本機開發
+### 方式一：CLI 部署（5 分鐘）
 
 ```bash
-npm install
-npm run dev
-```
-
-使用 Wrangler 本機開發（Cloudflare Pages 環境）：
-
-```bash
-npm run dev:wrangler
-```
-
-### 建置
-
-```bash
-npm run build
-```
-
-### 部署到 Cloudflare Pages
-
-#### 方式一：GitHub 整合（建議）
-
-1. Fork 或推送此儲存庫到你的 GitHub 帳戶。
-2. 前往 **Cloudflare 控制台** > **Workers & Pages** > **建立應用程式** > **Pages** > **連結到 Git**。
-3. 選擇你的儲存庫並設定：
-   - **建置命令：** `npm run build`
-   - **建置輸出目錄：** `dist`
-4. 新增環境變數（見下文）並部署。
-
-#### 方式二：CLI 直接上傳
-
-```bash
+# 1. 複製並建置
+git clone https://github.com/C-NF/cloudflare-dns-manager.git
+cd cloudflare-dns-manager
 npm install
 npm run build
+
+# 2. 建立專案並部署
 npx wrangler pages project create my-dns-manager
 npx wrangler pages deploy dist --project-name my-dns-manager
 ```
 
-#### 部署後設定
+然後完成下方的[部署後設定](#部署後設定)。
 
-1. **建立 KV 命名空間：**
-   - 前往 **Workers & Pages** > **KV** > **建立命名空間**
-   - 名稱隨意（如 `dns-manager-kv`）
+### 方式二：GitHub 整合
 
-2. **繫結 KV 到 Pages 專案：**
-   - 前往你的 Pages 專案 > **設定** > **Functions** > **KV 命名空間繫結**
-   - 新增繫結：變數名稱 = `CF_DNS_KV`，KV 命名空間 = 剛建立的命名空間
+1. Fork 此儲存庫到你的 GitHub 帳戶。
+2. 前往 **Cloudflare 控制台** > **Workers & Pages** > **建立應用程式** > **Pages** > **連結到 Git**。
+3. 選擇你的儲存庫並設定：
+   - **建置命令：** `npm run build`
+   - **建置輸出目錄：** `dist`
+4. 部署後，完成下方的[部署後設定](#部署後設定)。
 
-3. **設定環境變數：**
-   - 前往 **設定** > **環境變數**
-   - 新增下方列出的變數
+### 部署後設定
 
-4. **重新部署**以使繫結生效（觸發新部署或從控制台重新部署）。
+完成以下步驟後應用才能正常運作：
 
-## 環境變數
+**步驟 1 — 建立 KV 命名空間：**
+
+前往 **Cloudflare 控制台** > **Workers & Pages** > **KV** > **建立命名空間**，名稱隨意（如 `dns-manager-kv`）。
+
+**步驟 2 — 繫結 KV 到 Pages 專案：**
+
+前往你的 Pages 專案 > **設定** > **Functions** > **KV 命名空間繫結**：
+
+| 變數名稱 | KV 命名空間 |
+|----------|------------|
+| `CF_DNS_KV` | *（選擇剛建立的命名空間）* |
+
+**步驟 3 — 設定環境變數：**
+
+前往你的 Pages 專案 > **設定** > **環境變數**，新增：
 
 | 變數 | 必填 | 說明 |
 |------|------|------|
-| `APP_PASSWORD` | 是（伺服器模式） | 內建 `admin` 帳戶的管理員密碼。 |
+| `APP_PASSWORD` | 是 | 內建 `admin` 帳戶的登入密碼 |
 
-> **注意：** 無需將 `CF_API_TOKEN` 設為環境變數。API 權杖在登入後透過面板 UI 按使用者新增，儲存在 KV 中。
+> **注意：** 無需設定 `CF_API_TOKEN` 環境變數。Cloudflare API 權杖在登入後透過 UI 按使用者新增。
 
-### KV 命名空間繫結
+**步驟 4 — 重新部署：**
 
-| 繫結名稱 | 必填 | 說明 |
-|----------|------|------|
-| `CF_DNS_KV` | 是 | 儲存使用者帳戶、API 權杖、工作階段、設定、稽核日誌、DNS 快照、監控和排程任務 |
+繫結和環境變數僅在新部署後生效。觸發重新部署：
+
+```bash
+npx wrangler pages deploy dist --project-name my-dns-manager
+```
+
+或在 Cloudflare 控制台點擊 **重試部署**。
+
+**步驟 5 — 登入：**
+
+造訪你的 `*.pages.dev` 網址，使用使用者名稱 `admin` 和你設定的 `APP_PASSWORD` 登入。登入後在 UI 中新增你的 Cloudflare API 權杖。
 
 ### 選用：自訂網域
 
-使用自己的網域取代 `*.pages.dev` URL：
+使用自己的網域取代 `*.pages.dev`：
 
 1. 前往 Pages 專案 > **自訂網域** > **設定自訂網域**
 2. 輸入子網域（如 `dns.example.com`）—— 網域必須在同一 Cloudflare 帳戶中
 3. Cloudflare 會自動建立 CNAME 記錄並設定 SSL
+
+## 本機開發
+
+```bash
+npm install
+npm run dev           # Vite 開發伺服器
+npm run dev:wrangler  # Cloudflare Pages 本機開發（含 KV）
+npm run build         # 生產建置
+```
 
 ## API 概覽
 

@@ -55,89 +55,89 @@
 - Toast 通知
 - 离线检测横幅
 
-## 快速开始
+## 部署
 
-### 前置要求
-
-- Node.js 18+
-- 一个至少有一个域名的 Cloudflare 账户
-
-### 本地开发
+### 方式一：CLI 部署（5 分钟）
 
 ```bash
-npm install
-npm run dev
-```
-
-使用 Wrangler 本地开发（Cloudflare Pages 环境）：
-
-```bash
-npm run dev:wrangler
-```
-
-### 构建
-
-```bash
-npm run build
-```
-
-### 部署到 Cloudflare Pages
-
-#### 方式一：GitHub 集成（推荐）
-
-1. Fork 或推送此仓库到你的 GitHub 账户。
-2. 前往 **Cloudflare 控制台** > **Workers & Pages** > **创建应用** > **Pages** > **连接到 Git**。
-3. 选择你的仓库并配置：
-   - **构建命令：** `npm run build`
-   - **构建输出目录：** `dist`
-4. 添加环境变量（见下文）并部署。
-
-#### 方式二：CLI 直接上传
-
-```bash
+# 1. 克隆并构建
+git clone https://github.com/C-NF/cloudflare-dns-manager.git
+cd cloudflare-dns-manager
 npm install
 npm run build
+
+# 2. 创建项目并部署
 npx wrangler pages project create my-dns-manager
 npx wrangler pages deploy dist --project-name my-dns-manager
 ```
 
-#### 部署后设置
+然后完成下方的[部署后设置](#部署后设置)。
 
-1. **创建 KV 命名空间：**
-   - 前往 **Workers & Pages** > **KV** > **创建命名空间**
-   - 名称随意（如 `dns-manager-kv`）
+### 方式二：GitHub 集成
 
-2. **绑定 KV 到 Pages 项目：**
-   - 前往你的 Pages 项目 > **设置** > **Functions** > **KV 命名空间绑定**
-   - 添加绑定：变量名 = `CF_DNS_KV`，KV 命名空间 = 刚创建的命名空间
+1. Fork 此仓库到你的 GitHub 账户。
+2. 前往 **Cloudflare 控制台** > **Workers & Pages** > **创建应用** > **Pages** > **连接到 Git**。
+3. 选择你的仓库并配置：
+   - **构建命令：** `npm run build`
+   - **构建输出目录：** `dist`
+4. 部署后，完成下方的[部署后设置](#部署后设置)。
 
-3. **设置环境变量：**
-   - 前往 **设置** > **环境变量**
-   - 添加下方列出的变量
+### 部署后设置
 
-4. **重新部署**以使绑定生效（触发新部署或从控制台重新部署）。
+完成以下步骤后应用才能正常运行：
 
-## 环境变量
+**第 1 步 — 创建 KV 命名空间：**
+
+前往 **Cloudflare 控制台** > **Workers & Pages** > **KV** > **创建命名空间**，名称随意（如 `dns-manager-kv`）。
+
+**第 2 步 — 绑定 KV 到 Pages 项目：**
+
+前往你的 Pages 项目 > **设置** > **Functions** > **KV 命名空间绑定**：
+
+| 变量名 | KV 命名空间 |
+|--------|------------|
+| `CF_DNS_KV` | *（选择刚创建的命名空间）* |
+
+**第 3 步 — 设置环境变量：**
+
+前往你的 Pages 项目 > **设置** > **环境变量**，添加：
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `APP_PASSWORD` | 是（服务器模式） | 内置 `admin` 账户的管理员密码。 |
+| `APP_PASSWORD` | 是 | 内置 `admin` 账户的登录密码 |
 
-> **注意：** 无需将 `CF_API_TOKEN` 设为环境变量。API 令牌在登录后通过面板 UI 按用户添加，存储在 KV 中。
+> **注意：** 无需设置 `CF_API_TOKEN` 环境变量。Cloudflare API 令牌在登录后通过 UI 按用户添加。
 
-### KV 命名空间绑定
+**第 4 步 — 重新部署：**
 
-| 绑定名称 | 必填 | 说明 |
-|----------|------|------|
-| `CF_DNS_KV` | 是 | 存储用户账户、API 令牌、会话、设置、审计日志、DNS 快照、监控和定时任务 |
+绑定和环境变量仅在新部署后生效。触发重新部署：
+
+```bash
+npx wrangler pages deploy dist --project-name my-dns-manager
+```
+
+或在 Cloudflare 控制台点击 **重试部署**。
+
+**第 5 步 — 登录：**
+
+访问你的 `*.pages.dev` 地址，使用用户名 `admin` 和你设置的 `APP_PASSWORD` 登录。登录后在 UI 中添加你的 Cloudflare API 令牌。
 
 ### 可选：自定义域名
 
-使用自己的域名替代 `*.pages.dev` URL：
+使用自己的域名替代 `*.pages.dev`：
 
 1. 前往 Pages 项目 > **自定义域** > **设置自定义域**
 2. 输入子域名（如 `dns.example.com`）—— 域名必须在同一 Cloudflare 账户中
 3. Cloudflare 会自动创建 CNAME 记录并配置 SSL
+
+## 本地开发
+
+```bash
+npm install
+npm run dev           # Vite 开发服务器
+npm run dev:wrangler  # Cloudflare Pages 本地开发（带 KV）
+npm run build         # 生产构建
+```
 
 ## API 概览
 
